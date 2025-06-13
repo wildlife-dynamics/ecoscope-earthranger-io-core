@@ -31,6 +31,8 @@ class ObservationsGDFSchema(pa.DataFrameModel):
     junk_status: pa_typing.Series[bool] = pa.Field()
 
     # optional
-    extra__subject__name: pa_typing.Series[str] = pa.Field(nullable=True)
-    extra__subject__subject_subtype: pa_typing.Series[str] = pa.Field(nullable=True)
-    extra__subject__sex: pa_typing.Series[str] = pa.Field(nullable=True)
+    extra__subject__name: pa_typing.Series[str] | None = pa.Field(nullable=True)
+    extra__subject__subject_subtype: pa_typing.Series[str] | None = pa.Field(
+        nullable=True
+    )
+    extra__subject__sex: pa_typing.Series[str] | None = pa.Field(nullable=True)
