@@ -2,8 +2,7 @@
 
 python_version=$1
 
-command="pixi run -e test-${python_version} \
-pytest src/ecoscope_earthranger_io_core/ -vv"
+command="pixi run -e test-${python_version} pytest tests -vv"
 
 shift 1
 if [ -n "$*" ]; then
