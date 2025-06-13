@@ -526,8 +526,10 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/orc-2.1.2-h17f744e_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pandas-2.3.0-py310h5eaa309_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandas-stubs-2.2.3.250527-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-mypy-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pcre2-10.45-hc749103_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pillow-11.2.1-py310h7e6dc6c_0.conda
@@ -568,6 +570,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/tk-8.6.13-noxft_hd72426e_102.conda
       - conda: https://prefix.dev/conda-forge/noarch/tomli-2.2.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/typeguard-4.4.3-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/types-pytz-2025.2.0.20250516-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-extensions-4.14.0-h32cad80_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-inspection-0.4.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing_extensions-4.14.0-pyhe01879c_0.conda
@@ -717,8 +720,10 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/orc-2.1.2-hd90e43c_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pandas-2.3.0-py310h5936506_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandas-stubs-2.2.3.250527-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-mypy-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pcre2-10.45-ha881caa_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pillow-11.2.1-py310h61efb56_0.conda
@@ -758,6 +763,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/tk-8.6.13-h892fb3f_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/tomli-2.2.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/typeguard-4.4.3-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/types-pytz-2025.2.0.20250516-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-extensions-4.14.0-h32cad80_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-inspection-0.4.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing_extensions-4.14.0-pyhe01879c_0.conda
@@ -923,8 +929,10 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/orc-2.1.2-h17f744e_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pandas-2.3.0-py311h7db5c69_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandas-stubs-2.2.3.250527-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-mypy-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pcre2-10.45-hc749103_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pillow-11.2.1-py311h1322bbf_0.conda
@@ -965,6 +973,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/tk-8.6.13-noxft_hd72426e_102.conda
       - conda: https://prefix.dev/conda-forge/noarch/tomli-2.2.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/typeguard-4.4.3-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/types-pytz-2025.2.0.20250516-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-extensions-4.14.0-h32cad80_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-inspection-0.4.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing_extensions-4.14.0-pyhe01879c_0.conda
@@ -1114,8 +1123,10 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/orc-2.1.2-hd90e43c_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pandas-2.3.0-py311hca32420_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandas-stubs-2.2.3.250527-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-mypy-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pcre2-10.45-ha881caa_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pillow-11.2.1-py311hb9ba9e9_0.conda
@@ -1155,6 +1166,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/tk-8.6.13-h892fb3f_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/tomli-2.2.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/typeguard-4.4.3-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/types-pytz-2025.2.0.20250516-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-extensions-4.14.0-h32cad80_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-inspection-0.4.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing_extensions-4.14.0-pyhe01879c_0.conda
@@ -1320,8 +1332,10 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/orc-2.1.2-h17f744e_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pandas-2.3.0-py312hf9745cd_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandas-stubs-2.2.3.250527-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-mypy-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pcre2-10.45-hc749103_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pillow-11.2.1-py312h80c1187_0.conda
@@ -1362,6 +1376,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/tk-8.6.13-noxft_hd72426e_102.conda
       - conda: https://prefix.dev/conda-forge/noarch/tomli-2.2.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/typeguard-4.4.3-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/types-pytz-2025.2.0.20250516-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-extensions-4.14.0-h32cad80_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-inspection-0.4.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing_extensions-4.14.0-pyhe01879c_0.conda
@@ -1511,8 +1526,10 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/orc-2.1.2-hd90e43c_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pandas-2.3.0-py312hcb1e3ce_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandas-stubs-2.2.3.250527-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-mypy-0.24.0-hd8ed1ab_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pcre2-10.45-ha881caa_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pillow-11.2.1-py312h50aef2c_0.conda
@@ -1552,6 +1569,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/tk-8.6.13-h892fb3f_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/tomli-2.2.1-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/typeguard-4.4.3-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/types-pytz-2025.2.0.20250516-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-extensions-4.14.0-h32cad80_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing-inspection-0.4.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/typing_extensions-4.14.0-pyhe01879c_0.conda
@@ -6016,6 +6034,19 @@ packages:
   - pkg:pypi/pandas?source=hash-mapping
   size: 14054660
   timestamp: 1749100309197
+- conda: https://prefix.dev/conda-forge/noarch/pandas-stubs-2.2.3.250527-pyhd8ed1ab_1.conda
+  sha256: f36a5bc0b4551febcf8ce87cb7814c2d0ca8ef2c8f1606c924ca3f0bc1fd27ae
+  md5: 50f3c512f3034ed6277043f36af5dcb2
+  depends:
+  - numpy >=1.26.0
+  - python >=3.10
+  - types-pytz >=2022.1.1
+  license: BSD-3-Clause
+  license_family: BSD
+  purls:
+  - pkg:pypi/pandas-stubs?source=hash-mapping
+  size: 100801
+  timestamp: 1748387401885
 - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
   sha256: 857657552f1a8441e4c9e723637b8270f46b6262403dc18a76559dd5a5ba782e
   md5: a12a21a89519f0cc224e44da86f5be2c
@@ -6043,6 +6074,18 @@ packages:
   - pkg:pypi/pandera?source=hash-mapping
   size: 154521
   timestamp: 1749059957954
+- conda: https://prefix.dev/conda-forge/noarch/pandera-mypy-0.24.0-hd8ed1ab_2.conda
+  sha256: de9b24ee6ee6dbd5526e81da12992f09428352712e6d22338f2224cda09312fc
+  md5: bfb119778798acb722005e897dbec9b1
+  depends:
+  - mypy
+  - pandas-stubs
+  - pandera 0.24.0 hd8ed1ab_2
+  license: MIT
+  license_family: MIT
+  purls: []
+  size: 7396
+  timestamp: 1749059962339
 - conda: https://prefix.dev/conda-forge/noarch/pathspec-0.12.1-pyhd8ed1ab_1.conda
   sha256: 9f64009cdf5b8e529995f18e03665b03f5d07c0b17445b8badef45bde76249ee
   md5: 617f15191456cc6a13db418a275435e5
@@ -7798,6 +7841,16 @@ packages:
   - pkg:pypi/typeguard?source=hash-mapping
   size: 35054
   timestamp: 1749086876861
+- conda: https://prefix.dev/conda-forge/noarch/types-pytz-2025.2.0.20250516-pyhd8ed1ab_0.conda
+  sha256: feabb4bf7f18285ba041a61d32f30336455f8b53d773c92fd5fddd34188918d6
+  md5: 795bb35771205d19d6ff110b5d0eb83f
+  depends:
+  - python >=3.9
+  license: Apache-2.0 AND MIT
+  purls:
+  - pkg:pypi/types-pytz?source=hash-mapping
+  size: 19677
+  timestamp: 1747397547475
 - conda: https://prefix.dev/conda-forge/noarch/typing-extensions-4.14.0-h32cad80_0.conda
   sha256: b8cabfa54432b0f124c0af6b6facdf8110892914fa841ac2e80ab65ac52c1ba4
   md5: a1cdd40fc962e2f7944bc19e01c7e584
