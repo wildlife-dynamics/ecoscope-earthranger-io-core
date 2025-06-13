@@ -1,4 +1,4 @@
-import geoarrow.pyarrow
+import geoarrow.pyarrow  # type: ignore[import-untyped]
 import pyarrow as pa
 
 

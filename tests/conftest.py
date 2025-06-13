@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Generator
 
 import pyarrow
-import geoarrow.pyarrow as ga
+import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pytest
 
 from ecoscope_earthranger_io_core.query import ObservationsQuery
