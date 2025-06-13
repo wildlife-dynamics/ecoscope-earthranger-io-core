@@ -2,7 +2,7 @@
 
 python_version=$1
 
-command="pixi run -e test-${python_version} pytest tests -vv"
+command="pixi run -e test-${python_version} pytest src tests --doctest-modules -vv"
 
 shift 1
 if [ -n "$*" ]; then
