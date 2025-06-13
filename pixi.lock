@@ -45,6 +45,9 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/fonttools-4.58.2-py312h178313f_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/freetype-2.13.3-ha770c72_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/freexl-2.0.0-h9dce30a_2.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/geoarrow-c-0.3.0-py312h2ec8cdc_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-base-1.1.0-pyha770c72_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/geos-3.13.1-h97f6797_0.conda
@@ -79,6 +82,8 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/libcblas-3.9.0-31_he106b2a_openblas.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libcrc32c-1.1.2-h9c3ff4c_0.tar.bz2
       - conda: https://prefix.dev/conda-forge/linux-64/libcurl-8.14.1-h332b0f4_0.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/libcxx-20.1.6-hf532b92_0.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/libcxxabi-20.1.6-hf4943e6_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libdeflate-1.24-h86f0d12_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libedit-3.1.20250104-pl5321h7949ede_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libev-4.33-hd590300_2.conda
@@ -234,6 +239,9 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/fonttools-4.58.2-py312h998013c_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/freetype-2.13.3-hce30654_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/freexl-2.0.0-h3ab3353_2.conda
+      - conda: https://prefix.dev/conda-forge/osx-arm64/geoarrow-c-0.3.0-py312hd8f9ff3_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-base-1.1.0-pyha770c72_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/geos-3.13.1-hc9a1286_0.conda
@@ -426,6 +434,9 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/fonttools-4.58.2-py310h89163eb_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/freetype-2.13.3-ha770c72_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/freexl-2.0.0-h9dce30a_2.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/geoarrow-c-0.3.0-py310hf71b8c6_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-base-1.1.0-pyha770c72_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/geos-3.13.1-h97f6797_0.conda
@@ -461,6 +472,8 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/libcblas-3.9.0-31_he106b2a_openblas.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libcrc32c-1.1.2-h9c3ff4c_0.tar.bz2
       - conda: https://prefix.dev/conda-forge/linux-64/libcurl-8.14.1-h332b0f4_0.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/libcxx-20.1.6-hf532b92_0.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/libcxxabi-20.1.6-hf4943e6_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libdeflate-1.24-h86f0d12_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libedit-3.1.20250104-pl5321h7949ede_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libev-4.33-hd590300_2.conda
@@ -629,6 +642,9 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/fonttools-4.58.2-py310hc74094e_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/freetype-2.13.3-hce30654_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/freexl-2.0.0-h3ab3353_2.conda
+      - conda: https://prefix.dev/conda-forge/osx-arm64/geoarrow-c-0.3.0-py310h853098b_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-base-1.1.0-pyha770c72_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/geos-3.13.1-hc9a1286_0.conda
@@ -833,6 +849,9 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/fonttools-4.58.2-py311h2dc5d0c_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/freetype-2.13.3-ha770c72_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/freexl-2.0.0-h9dce30a_2.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/geoarrow-c-0.3.0-py311hfdbb021_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-base-1.1.0-pyha770c72_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/geos-3.13.1-h97f6797_0.conda
@@ -868,6 +887,8 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/libcblas-3.9.0-31_he106b2a_openblas.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libcrc32c-1.1.2-h9c3ff4c_0.tar.bz2
       - conda: https://prefix.dev/conda-forge/linux-64/libcurl-8.14.1-h332b0f4_0.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/libcxx-20.1.6-hf532b92_0.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/libcxxabi-20.1.6-hf4943e6_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libdeflate-1.24-h86f0d12_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libedit-3.1.20250104-pl5321h7949ede_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libev-4.33-hd590300_2.conda
@@ -1036,6 +1057,9 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/fonttools-4.58.2-py311h4921393_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/freetype-2.13.3-hce30654_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/freexl-2.0.0-h3ab3353_2.conda
+      - conda: https://prefix.dev/conda-forge/osx-arm64/geoarrow-c-0.3.0-py311h155a34a_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-base-1.1.0-pyha770c72_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/geos-3.13.1-hc9a1286_0.conda
@@ -1240,6 +1264,9 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/fonttools-4.58.2-py312h178313f_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/freetype-2.13.3-ha770c72_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/freexl-2.0.0-h9dce30a_2.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/geoarrow-c-0.3.0-py312h2ec8cdc_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-base-1.1.0-pyha770c72_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/geos-3.13.1-h97f6797_0.conda
@@ -1275,6 +1302,8 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/libcblas-3.9.0-31_he106b2a_openblas.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libcrc32c-1.1.2-h9c3ff4c_0.tar.bz2
       - conda: https://prefix.dev/conda-forge/linux-64/libcurl-8.14.1-h332b0f4_0.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/libcxx-20.1.6-hf532b92_0.conda
+      - conda: https://prefix.dev/conda-forge/linux-64/libcxxabi-20.1.6-hf4943e6_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libdeflate-1.24-h86f0d12_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libedit-3.1.20250104-pl5321h7949ede_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/libev-4.33-hd590300_2.conda
@@ -1443,6 +1472,9 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/fonttools-4.58.2-py312h998013c_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/freetype-2.13.3-hce30654_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/freexl-2.0.0-h3ab3353_2.conda
+      - conda: https://prefix.dev/conda-forge/osx-arm64/geoarrow-c-0.3.0-py312hd8f9ff3_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/geopandas-base-1.1.0-pyha770c72_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/geos-3.13.1-hc9a1286_0.conda
@@ -2797,6 +2829,124 @@ packages:
   purls: []
   size: 53378
   timestamp: 1734014980768
+- conda: https://prefix.dev/conda-forge/linux-64/geoarrow-c-0.3.0-py310hf71b8c6_0.conda
+  sha256: 941a2b0dca513dfa99370ce7a8e8a0302fa10189ea367ffe18fc46d4259a2f59
+  md5: 30569bf3ffd9474e23f957012f0cd661
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libcxx
+  - libgcc >=13
+  - libstdcxx >=13
+  - python >=3.10,<3.11.0a0
+  - python_abi 3.10.* *_cp310
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/geoarrow-c?source=hash-mapping
+  size: 539679
+  timestamp: 1748350122971
+- conda: https://prefix.dev/conda-forge/linux-64/geoarrow-c-0.3.0-py311hfdbb021_0.conda
+  sha256: 08eae7b5b81103b6a1c418fc5672b9495f908d2ad2bc39ed6f425ee1adbcf7ec
+  md5: cceec1d4befd447054e033db1ee4ceae
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libcxx
+  - libgcc >=13
+  - libstdcxx >=13
+  - python >=3.11,<3.12.0a0
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/geoarrow-c?source=hash-mapping
+  size: 541493
+  timestamp: 1748350023170
+- conda: https://prefix.dev/conda-forge/linux-64/geoarrow-c-0.3.0-py312h2ec8cdc_0.conda
+  sha256: 6b6eed871748e164043460d6e5e08b43be6e470984ded6d2a74756b5b5a37ae6
+  md5: e120b0cd312560b3499737e79be7d71d
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libcxx
+  - libgcc >=13
+  - libstdcxx >=13
+  - python >=3.12,<3.13.0a0
+  - python_abi 3.12.* *_cp312
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/geoarrow-c?source=hash-mapping
+  size: 538088
+  timestamp: 1748350009509
+- conda: https://prefix.dev/conda-forge/osx-arm64/geoarrow-c-0.3.0-py310h853098b_0.conda
+  sha256: dc3e6dcfa639deadf5a99baea0d6400123abb182c30b5a0d48ab1ffc9b4fc8e7
+  md5: c9d3764fc0a5074fc9e5e8d8884be448
+  depends:
+  - __osx >=11.0
+  - libcxx >=18
+  - python >=3.10,<3.11.0a0
+  - python >=3.10,<3.11.0a0 *_cpython
+  - python_abi 3.10.* *_cp310
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/geoarrow-c?source=hash-mapping
+  size: 505048
+  timestamp: 1748350178966
+- conda: https://prefix.dev/conda-forge/osx-arm64/geoarrow-c-0.3.0-py311h155a34a_0.conda
+  sha256: d0cf70f58d5916aa014acb91c61cbce5845de2c9be31f35879833eb21f85e336
+  md5: 5eefe68c448517637271a6dc63b625c7
+  depends:
+  - __osx >=11.0
+  - libcxx >=18
+  - python >=3.11,<3.12.0a0
+  - python >=3.11,<3.12.0a0 *_cpython
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/geoarrow-c?source=hash-mapping
+  size: 502701
+  timestamp: 1748350243151
+- conda: https://prefix.dev/conda-forge/osx-arm64/geoarrow-c-0.3.0-py312hd8f9ff3_0.conda
+  sha256: ce2a29216eac7a1ad7bf1bdb5702fce8dec23c6afcf69231509eb8467087817c
+  md5: e5224bd8228923ea582f4966e094d4b2
+  depends:
+  - __osx >=11.0
+  - libcxx >=18
+  - python >=3.12,<3.13.0a0
+  - python >=3.12,<3.13.0a0 *_cpython
+  - python_abi 3.12.* *_cp312
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/geoarrow-c?source=hash-mapping
+  size: 502759
+  timestamp: 1748350178537
+- conda: https://prefix.dev/conda-forge/noarch/geoarrow-pyarrow-0.2.0-pyhd8ed1ab_0.conda
+  sha256: efb8e205c8ecb65588195f33779cd73d80ecc6a47b2997bc331cedb0694ffffa
+  md5: 5d09e6f69cecb4ff9bbbb52bb0e1b2e4
+  depends:
+  - geoarrow-c >=0.3.0
+  - geoarrow-types >=0.3.0
+  - pyarrow
+  - python >=3.9
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/geoarrow-pyarrow?source=hash-mapping
+  size: 35460
+  timestamp: 1748626852210
+- conda: https://prefix.dev/conda-forge/noarch/geoarrow-types-0.3.0-pyhd8ed1ab_0.conda
+  sha256: 071816d2d824461fbf7b842c110ed2a8434ca762eb68c7767baaeb9a5db92f73
+  md5: 2c6442daf1ecc13177acd144e7f015e0
+  depends:
+  - python >=3.9
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/geoarrow-types?source=hash-mapping
+  size: 30547
+  timestamp: 1748349992209
 - conda: https://prefix.dev/conda-forge/noarch/geopandas-1.1.0-pyhd8ed1ab_0.conda
   sha256: 6f5658fc545065c71a61523a9b35c888a44d008d908963b7686e7e8a302bb61e
   md5: 6172cf7532433bf6b19ba5012444ee06
@@ -3670,6 +3820,20 @@ packages:
   purls: []
   size: 403456
   timestamp: 1749033320430
+- conda: https://prefix.dev/conda-forge/linux-64/libcxx-20.1.6-hf532b92_0.conda
+  sha256: d195f3ace6519d9ed094ddbf0457267894aa03a22db2dd43e4bccd90baa87920
+  md5: 9447e5c5ff48e182fa00c682184c059b
+  depends:
+  - __glibc >=2.28,<3.0.a0
+  - libcxxabi 20.1.6 hf4943e6_0
+  - libgcc >=14
+  constrains:
+  - sysroot_linux-64 >=2.28
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  size: 1043524
+  timestamp: 1748495009623
 - conda: https://prefix.dev/conda-forge/osx-arm64/libcxx-20.1.6-ha82da77_0.conda
   sha256: b74ec832ec05571f8747c9bd5f96b93d76489909b4f6f37d99d576dc955f21e9
   md5: 95c1830841844ef54e07efed1654b47f
@@ -3680,6 +3844,19 @@ packages:
   purls: []
   size: 567539
   timestamp: 1748495055530
+- conda: https://prefix.dev/conda-forge/linux-64/libcxxabi-20.1.6-hf4943e6_0.conda
+  sha256: 117b3c9086d110a0d96ff23810185d419dc60a2f2d97c43a1976ef75c33c6c28
+  md5: 06bf0a18a52590e65331568cb532376f
+  depends:
+  - __glibc >=2.28,<3.0.a0
+  - libgcc >=14
+  constrains:
+  - libcxx 20.1.6.*
+  license: Apache-2.0 WITH LLVM-exception
+  license_family: Apache
+  purls: []
+  size: 164110
+  timestamp: 1748494993916
 - conda: https://prefix.dev/conda-forge/linux-64/libdeflate-1.24-h86f0d12_0.conda
   sha256: 8420748ea1cc5f18ecc5068b4f24c7a023cc9b20971c99c824ba10641fb95ddf
   md5: 64f0c503da58ec25ebd359e4d990afa8
