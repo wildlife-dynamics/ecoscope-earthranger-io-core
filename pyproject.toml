@@ -57,6 +57,7 @@ pandas-stubs = "*"
 pandera-mypy = "*"
 
 [tool.pixi.feature.test.pypi-dependencies]
+"ecoscope-earthranger-io-core" = { path = ".", editable = true }
 types-shapely = "*"
 
 [tool.pixi.feature.test.tasks]

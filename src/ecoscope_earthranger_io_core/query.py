@@ -1,14 +1,14 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class _WarehouseQuery(BaseModel):
     tenant_id: str
     range_start: datetime
     range_end: datetime
-    columns: list[str]
+    columns: list[str] = Field(default_factory=list)
 
 
 class ObservationsQuery(_WarehouseQuery):
