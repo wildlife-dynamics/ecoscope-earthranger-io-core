@@ -9,7 +9,7 @@ pytest.importorskip(
 )
 pytest.importorskip("pandera", reason="pandera is required for testing dataframe.py")
 
-import geopandas as gpd
+import geopandas as gpd  # type: ignore[import-untyped]
 import pandera.pandas as pa
 from shapely.geometry import Point
 

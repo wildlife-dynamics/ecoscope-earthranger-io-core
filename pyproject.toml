@@ -54,6 +54,9 @@ mypy = "*"
 pandas-stubs = "*"
 pandera-mypy = "*"
 
+[tool.pixi.feature.test.pypi-dependencies]
+types-shapely = "*"
+
 [tool.pixi.feature.test.tasks]
 test-310 = { cmd = "./dev/pytest.sh 310"}
 test-311 = { cmd = "./dev/pytest.sh 311"}
