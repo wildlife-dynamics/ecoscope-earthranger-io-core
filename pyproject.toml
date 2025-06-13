@@ -46,7 +46,7 @@ dependencies = { python = "3.12.*" }
 dependencies = { pytest = ">=8.3.5,<9", mypy = "*" }
 
 [tool.pixi.feature.test.tasks]
-test-310 = { cmd = ""}
+test-310 = { cmd = "./dev/pytest-src.sh 310"}
 test-311 = { cmd = "./dev/pytest-src.sh 311"}
 test-312 = { cmd = "./dev/pytest-src.sh 312"}
 test-all = { cmd = "echo 'test-all' complete", depends-on = [
