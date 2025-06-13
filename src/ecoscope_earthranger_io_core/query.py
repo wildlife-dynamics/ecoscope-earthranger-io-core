@@ -62,8 +62,45 @@ class _PatrolsQuery(_WarehouseQuery):
 
 
 class PatrolObservationsQuery(_PatrolsQuery):
+    """An EarthRanger patrol observations query.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import PatrolObservationsQuery
+    >>> query = PatrolObservationsQuery(
+    ...     tenant_id="tenant123",
+    ...     range_start=datetime(2023, 1, 1),
+    ...     range_end=datetime(2023, 12, 31),
+    ...     columns=["id", "time", "species", "location"],
+    ...     patrol_ids=["patrol1", "patrol2"],
+    ...     patrol_statuses=["done"],
+    ... )
+    >>>
+    ```
+    """
+
     pass
 
 
 class PatrolEventsQuery(_PatrolsQuery):
+    """An EarthRanger patrol observations query.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import PatrolObservationsQuery
+    >>> query = PatrolObservationsQuery(
+    ...     tenant_id="tenant123",
+    ...     range_start=datetime(2023, 1, 1),
+    ...     range_end=datetime(2023, 12, 31),
+    ...     columns=["id", "time", "species", "location"],
+    ...     patrol_ids=["patrol1", "patrol2"],
+    ...     patrol_statuses=["done"],
+    ...     event_type_ids=["event1", "event2"],
+    ... )
+    >>>
+    ```
+    """
+
     event_type_ids: list[str]
