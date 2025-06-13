@@ -48,8 +48,11 @@ dependencies = { python = "3.11.*" }
 [tool.pixi.feature.py312]
 dependencies = { python = "3.12.*" }
 
-[tool.pixi.feature.test]
-dependencies = { pytest = ">=8.3.5,<9", mypy = "*" }
+[tool.pixi.feature.test.dependencies]
+pytest = ">=8.3.5,<9"
+mypy = "*"
+pandas-stubs = "*"
+pandera-mypy = "*"
 
 [tool.pixi.feature.test.tasks]
 test-310 = { cmd = "./dev/pytest.sh 310"}
@@ -98,3 +101,8 @@ backend = { name = "pixi-build-python", version = "0.1.*" }
 [tool.pixi.package.host-dependencies]
 python = ">=3.10,<=3.12"
 hatchling = "==1.26.3"
+
+# other tools
+
+[tool.mypy]
+plugins = ["pandera.mypy", "pydantic.mypy"]
