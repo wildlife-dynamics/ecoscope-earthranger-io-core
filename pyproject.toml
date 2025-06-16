@@ -59,6 +59,7 @@ pandera-mypy = "*"
 [tool.pixi.feature.test.pypi-dependencies]
 "ecoscope-earthranger-io-core" = { path = ".", editable = true }
 pyarrow-stubs = "*"  # recommended in https://github.com/apache/arrow/issues/32609
+types-geopandas = "*"  # https://github.com/geopandas/geopandas/issues/3091
 types-shapely = "*"
 
 [tool.pixi.feature.test.tasks]

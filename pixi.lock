@@ -603,6 +603,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/zstandard-0.23.0-py310ha75aee5_2.conda
       - conda: https://prefix.dev/conda-forge/linux-64/zstd-1.5.7-hb8e6e7a_2.conda
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
       - pypi: .
       osx-arm64:
@@ -802,6 +803,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/zstandard-0.23.0-py310h078409c_2.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/zstd-1.5.7-h6491c7d_2.conda
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
       - pypi: .
   test-311:
@@ -1022,6 +1024,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/zstandard-0.23.0-py311h9ecbd09_2.conda
       - conda: https://prefix.dev/conda-forge/linux-64/zstd-1.5.7-hb8e6e7a_2.conda
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
       - pypi: .
       osx-arm64:
@@ -1221,6 +1224,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/zstandard-0.23.0-py311h917b07b_2.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/zstd-1.5.7-h6491c7d_2.conda
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
       - pypi: .
   test-312:
@@ -1441,6 +1445,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/zstandard-0.23.0-py312h66e93f0_2.conda
       - conda: https://prefix.dev/conda-forge/linux-64/zstd-1.5.7-hb8e6e7a_2.conda
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
       - pypi: .
       osx-arm64:
@@ -1640,6 +1645,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/zstandard-0.23.0-py312hea69d52_2.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/zstd-1.5.7-h6491c7d_2.conda
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
       - pypi: .
 packages:
@@ -2667,8 +2673,8 @@ packages:
   timestamp: 1733332563512
 - pypi: .
   name: ecoscope-earthranger-io-core
-  version: 0.1.dev23+g8c3bf0e.d20250613
-  sha256: 4a891e7c146bf3ff67b8fd5b74965b5ae1412421495aef81729a134310a1ca82
+  version: 0.1.dev25+g79c6b7a.d20250616
+  sha256: 7462279b711a0b0a4b61c46c81248b56e34fa53c8154415726431c54f1d455dd
   requires_dist:
   - geoarrow-pyarrow>=0.2.0,<0.3
   - pyarrow>=20.0.0,<21
@@ -8059,6 +8065,16 @@ packages:
   - pkg:pypi/typeguard?source=hash-mapping
   size: 35054
   timestamp: 1749086876861
+- pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
+  name: types-geopandas
+  version: 1.0.1.20250510
+  sha256: 965dc901f025c272a2c464be89bbb52d7976d753ee7e0ccd242009609e3c3b1b
+  requires_dist:
+  - types-shapely
+  - numpy>=1.20
+  - pandas-stubs
+  - pyproj
+  requires_python: '>=3.9'
 - conda: https://prefix.dev/conda-forge/noarch/types-pytz-2025.2.0.20250516-pyhd8ed1ab_0.conda
   sha256: feabb4bf7f18285ba041a61d32f30336455f8b53d773c92fd5fddd34188918d6
   md5: 795bb35771205d19d6ff110b5d0eb83f
