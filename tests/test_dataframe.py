@@ -11,6 +11,7 @@ pytest.importorskip(
 pytest.importorskip("pandera", reason="pandera is required for testing dataframe.py")
 
 import geopandas as gpd  # type: ignore[import-untyped]
+import pandas as pd
 import pandera.pandas
 from shapely.geometry import Point
 
@@ -48,13 +49,19 @@ def test_observations_gdf_schema_missing_column_raises():
         ObservationsGDFSchema.validate(gdf)
 
 
-@pytest.mark.xfail(reason="FIXME: rename columns to match dataframe schema")
 def test_observations_from_arrow(mock_observations_record_batch: pyarrow.RecordBatch):
     table = pyarrow.Table.from_batches([mock_observations_record_batch])
     gdf = gpd.GeoDataFrame.from_arrow(table)
     assert len(gdf) > 0
-    # FIXME: rename columns to match dataframe schema (location -> geometry, subject_name -> extra__subject__name, etc.)
-    # E           pandera.errors.SchemaError: column 'geometry' not in dataframe.
-    # Columns in dataframe: ['location', 'recorded_at', 'subject_id', 'subject_name', 'subject_subtype_id']
-    #
-    ObservationsGDFSchema.validate(gdf)
+    rename_columns = {
+        "location": "geometry",
+        "subject_id": "groupby_col",
+        "recorded_at": "fixtime",
+        "subject_name": "extra__subject__name",
+        "subject_subtype_id": "extra__subject__subject_subtype",
+    }
+    obs = gdf.rename(columns=rename_columns)
+    obs["fixtime"] = pd.to_datetime(obs["fixtime"], utc=True)
+    obs["fixtime"] = obs["fixtime"].astype("datetime64[ns, UTC]")
+    obs["junk_status"] = False
+    ObservationsGDFSchema.validate(obs, lazy=True)
