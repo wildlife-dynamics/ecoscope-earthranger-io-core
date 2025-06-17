@@ -62,6 +62,6 @@ def test_observations_from_arrow(mock_observations_record_batch: pyarrow.RecordB
     }
     obs = gdf.rename(columns=rename_columns)
     obs["fixtime"] = pd.to_datetime(obs["fixtime"], utc=True)
-    obs["fixtime"] = obs["fixtime"].astype("datetime64[ns, UTC]")
+    obs["fixtime"] = obs["fixtime"].astype("datetime64[ns, UTC]")  # type: ignore[call-overload]
     obs["junk_status"] = False
     ObservationsGDFSchema.validate(obs, lazy=True)
