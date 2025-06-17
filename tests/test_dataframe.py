@@ -11,10 +11,10 @@ pytest.importorskip(
 pytest.importorskip("pandera", reason="pandera is required for testing dataframe.py")
 
 import geopandas as gpd  # type: ignore[import-untyped]
-import pandas as pd
 import pandera.pandas
 from shapely.geometry import Point
 
+from ecoscope_earthranger_io_core.arrow import to_ecoscope_schema
 from ecoscope_earthranger_io_core.dataframe import ObservationsGDFSchema
 
 
@@ -50,18 +50,19 @@ def test_observations_gdf_schema_missing_column_raises():
 
 
 def test_observations_from_arrow(mock_observations_record_batch: pyarrow.RecordBatch):
-    table = pyarrow.Table.from_batches([mock_observations_record_batch])
-    gdf = gpd.GeoDataFrame.from_arrow(table)
-    assert len(gdf) > 0
-    rename_columns = {
-        "location": "geometry",
-        "subject_id": "groupby_col",
-        "recorded_at": "fixtime",
-        "subject_name": "extra__subject__name",
-        "subject_subtype_id": "extra__subject__subject_subtype",
-    }
-    obs = gdf.rename(columns=rename_columns)
-    obs["fixtime"] = pd.to_datetime(obs["fixtime"], utc=True)
-    obs["fixtime"] = obs["fixtime"].astype("datetime64[ns, UTC]")  # type: ignore[call-overload]
-    obs["junk_status"] = False
+    as_ecoscope_rb = to_ecoscope_schema(mock_observations_record_batch)
+    table = pyarrow.Table.from_batches([as_ecoscope_rb])
+    obs = gpd.GeoDataFrame.from_arrow(table)
+    assert len(obs) > 0
+    # rename_columns = {
+    #     "location": "geometry",
+    #     "subject_id": "groupby_col",
+    #     "recorded_at": "fixtime",
+    #     "subject_name": "extra__subject__name",
+    #     "subject_subtype_id": "extra__subject__subject_subtype",
+    # }
+    # obs = gdf.rename(columns=rename_columns)
+    # obs["fixtime"] = pd.to_datetime(obs["fixtime"], utc=True)
+    # obs["fixtime"] = obs["fixtime"].astype("datetime64[ns, UTC]")  # type: ignore[call-overload]
+    # obs["junk_status"] = False
     ObservationsGDFSchema.validate(obs, lazy=True)
