@@ -1,9 +1,35 @@
+from dataclasses import dataclass
+from typing import Callable
+
 import geoarrow.pyarrow  # type: ignore[import-untyped]
 import pyarrow as pa
 import pyarrow.compute as pc
 
 
-OBSERVATIONS_EARTHRANGER_ARROW_SCHEMA = pa.schema(
+@dataclass(frozen=True)
+class SchemaConversion:
+    """Template algorithm for EarthRanger to Ecoscope RecordBatch conversion."""
+
+    earthranger_schema: pa.Schema
+    ecoscope_schema: pa.Schema
+    pre_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
+    post_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
+
+    def to_ecoscope_rb(self, earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
+        """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
+        assert earthranger_rb.schema.equals(self.earthranger_schema), (
+            f"Expected input schema to be:\n {self.earthranger_schema}\n "
+            f"but got:\n {earthranger_rb.schema}"
+        )
+        if self.pre_cast_fn:
+            earthranger_rb = self.pre_cast_fn(earthranger_rb)
+        ecoscope_rb = earthranger_rb.cast(self.ecoscope_schema)
+        if self.post_cast_fn:
+            ecoscope_rb = self.post_cast_fn(ecoscope_rb)
+        return ecoscope_rb
+
+
+OBSERVATIONS_SCHEMA_EARTHRANGER = pa.schema(
     [
         ("location", geoarrow.pyarrow.wkb()),
         ("recorded_at", pa.string()),
@@ -12,7 +38,7 @@ OBSERVATIONS_EARTHRANGER_ARROW_SCHEMA = pa.schema(
         ("subject_subtype_id", pa.string()),
     ]
 )
-OBSERVATIONS_ECOSCOPE_ARROW_SCHEMA = pa.schema(
+OBSERVATIONS_SCHEMA_ECOSCOPE = pa.schema(
     [
         ("geometry", geoarrow.pyarrow.wkb()),
         ("fixtime", pa.timestamp("ns")),
@@ -24,16 +50,12 @@ OBSERVATIONS_ECOSCOPE_ARROW_SCHEMA = pa.schema(
 )
 
 
-def to_ecoscope_schema(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
+def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
     """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
-    assert earthranger_rb.schema.equals(OBSERVATIONS_EARTHRANGER_ARROW_SCHEMA), (
-        f"Expected input schema to be:\n {OBSERVATIONS_EARTHRANGER_ARROW_SCHEMA}\n "
-        f"but got:\n {earthranger_rb.schema}"
-    )
-    # FIXME: is junk_status actually supposed to be inferred from exclusion_flags, or something?
+
     junk_status = pa.array([False] * earthranger_rb.num_rows, type=pa.bool_())
     add_junk_status = earthranger_rb.append_column("junk_status", junk_status)
-    renamed_columns = add_junk_status.rename_columns(
+    return add_junk_status.rename_columns(
         {
             "location": "geometry",
             "subject_id": "groupby_col",
@@ -42,9 +64,19 @@ def to_ecoscope_schema(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
             "subject_subtype_id": "extra__subject__subject_subtype",
         }
     )
-    ecoscope_rb = renamed_columns.cast(OBSERVATIONS_ECOSCOPE_ARROW_SCHEMA)
+
+
+def _observations_post_cast(ecoscope_rb: pa.RecordBatch) -> pa.RecordBatch:
     # NOTE: workaround for missing +00:00 timezone offset in EarthRanger data, can be removed
     # once EarthRanger data is fixed to include timezone offsets.
     fixtime_naive = ecoscope_rb.column("fixtime")
     fixtime_utc = pc.assume_timezone(fixtime_naive, timezone="UTC")
     return ecoscope_rb.drop_columns("fixtime").append_column("fixtime", fixtime_utc)
+
+
+OBSERVATIONS_CONVERSION = SchemaConversion(
+    earthranger_schema=OBSERVATIONS_SCHEMA_EARTHRANGER,
+    ecoscope_schema=OBSERVATIONS_SCHEMA_ECOSCOPE,
+    pre_cast_fn=_observations_pre_cast,
+    post_cast_fn=_observations_post_cast,
+)
