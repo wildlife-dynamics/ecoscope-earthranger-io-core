@@ -578,6 +578,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/pyproj-3.7.1-py310h71d0299_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-8.4.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pytest-asyncio-1.0.0-pyhe01879c_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/python-3.10.18-hd6af730_0_cpython.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dateutil-2.9.0.post0-pyhff2d567_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dotenv-1.1.0-pyh29332c3_1.conda
@@ -810,6 +811,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/pyproj-3.7.1-py310h5b9b180_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-8.4.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pytest-asyncio-1.0.0-pyhe01879c_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/python-3.10.18-h6cefb37_0_cpython.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dateutil-2.9.0.post0-pyhff2d567_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dotenv-1.1.0-pyh29332c3_1.conda
@@ -1061,6 +1063,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/pyproj-3.7.1-py311h0960b38_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-8.4.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pytest-asyncio-1.0.0-pyhe01879c_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/python-3.11.13-h9e4cc4f_0_cpython.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dateutil-2.9.0.post0-pyhff2d567_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dotenv-1.1.0-pyh29332c3_1.conda
@@ -1293,6 +1296,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/pyproj-3.7.1-py311h9539e93_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-8.4.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pytest-asyncio-1.0.0-pyhe01879c_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/python-3.11.13-hc22306f_0_cpython.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dateutil-2.9.0.post0-pyhff2d567_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dotenv-1.1.0-pyh29332c3_1.conda
@@ -1544,6 +1548,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/pyproj-3.7.1-py312h03c6e1f_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-8.4.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pytest-asyncio-1.0.0-pyhe01879c_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/python-3.12.11-h9e4cc4f_0_cpython.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dateutil-2.9.0.post0-pyhff2d567_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dotenv-1.1.0-pyh29332c3_1.conda
@@ -1776,6 +1781,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/pyproj-3.7.1-py312h237c406_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pysocks-1.7.1-pyha55dd90_7.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-8.4.0-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pytest-asyncio-1.0.0-pyhe01879c_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/python-3.12.11-hc22306f_0_cpython.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dateutil-2.9.0.post0-pyhff2d567_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/python-dotenv-1.1.0-pyh29332c3_1.conda
@@ -2911,12 +2917,16 @@ packages:
   timestamp: 1733256829961
 - pypi: .
   name: ecoscope-earthranger-io-core
-  version: 0.1.dev34+g72028fa.d20250617
-  sha256: 822ccf444105872d1a74cdba56c658fd6d9768c97651925b5bdf5d1c0681b303
+  version: 0.1.dev36+gfffd4f8.d20250617
+  sha256: 5ac0856f404b68222a6dba7d9c18c160f8533773348b0ce008dd58754b397203
   requires_dist:
   - geoarrow-pyarrow>=0.2.0,<0.3
   - pyarrow>=20.0.0,<21
   - pydantic>=2.0.0,<3
+  - fastapi ; extra == 'test'
+  - httpx ; extra == 'test'
+  - pytest ; extra == 'test'
+  - pytest-asyncio ; extra == 'test'
   requires_python: '>=3.10,<3.13'
   editable: true
 - conda: https://prefix.dev/conda-forge/noarch/email-validator-2.2.0-pyhd8ed1ab_1.conda
@@ -7732,6 +7742,20 @@ packages:
   - pkg:pypi/pytest?source=compressed-mapping
   size: 275014
   timestamp: 1748907618871
+- conda: https://prefix.dev/conda-forge/noarch/pytest-asyncio-1.0.0-pyhe01879c_0.conda
+  sha256: ba4d6fef04289e6f0cce3606ed6ddd6a0835c736d9561e5fec2c14313e3e72d2
+  md5: 8d0e343fd65d3323818087455da9c851
+  depends:
+  - pytest >=8.2,<9
+  - python >=3.9
+  - typing_extensions >=4.12
+  - python
+  license: Apache-2.0
+  license_family: APACHE
+  purls:
+  - pkg:pypi/pytest-asyncio?source=hash-mapping
+  size: 38669
+  timestamp: 1748305379549
 - conda: https://prefix.dev/conda-forge/linux-64/python-3.10.18-hd6af730_0_cpython.conda
   sha256: 4111e5504fa4f4fb431d3a73fa606daccaf23a5a1da0f17a30db70ffad9336a7
   md5: 4ea0c77cdcb0b81813a0436b162d7316

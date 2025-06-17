@@ -28,6 +28,7 @@ dependencies = [
 test = [
     "fastapi",
     "pytest",
+    "pytest-asyncio",
     "httpx",
 ]
 
@@ -42,6 +43,7 @@ pandera = ">=0.24.0,<0.25"
 [tool.pixi.feature.test.dependencies]
 fastapi = "*"
 pytest = ">=8.3.5,<9"
+pytest-asyncio = "*"
 httpx = "*"
 mypy = "*"
 pandas-stubs = "*"

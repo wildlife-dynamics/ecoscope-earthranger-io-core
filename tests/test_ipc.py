@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
 from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA_EARTHRANGER
+from ecoscope_earthranger_io_core.client import get_table
 from ecoscope_earthranger_io_core.serve import generate_bytes
 
 
@@ -45,6 +46,13 @@ def app(async_batch_generator: AsyncGenerator):
         yield client
 
 
-def test_streaming_arrow(app: TestClient):
-    response = app.get("/stream/arrow")
-    assert response.status_code == 200
+@pytest.mark.asyncio
+async def test_client_get_table(app: TestClient):
+    table = await get_table(
+        route="/stream/arrow",
+        query=None,  # Assuming no query parameters for this test
+        base_url=app.base_url,
+        headers=None,
+    )
+    assert isinstance(table, pa.Table)
+    assert table.schema.equals(OBSERVATIONS_SCHEMA_EARTHRANGER)
