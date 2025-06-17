@@ -24,6 +24,13 @@ dependencies = [
     # and geopandas in particular is a heavy dependency
     # only needed for the client side
 ]
+[optional-dependencies]
+test = [
+    "fastapi",
+    "pytest",
+    "httpx",
+]
+
 [tool.pixi.dependencies]
 python = ">=3.10,<3.13"
 pydantic = ">=2.0.0,<3"
@@ -32,7 +39,15 @@ geoarrow-pyarrow = ">=0.2.0,<0.3"
 geopandas = ">=1.1.0,<2"
 pandera = ">=0.24.0,<0.25"
 
-# pixi environments and features
+[tool.pixi.feature.test.dependencies]
+fastapi = "*"
+pytest = ">=8.3.5,<9"
+httpx = "*"
+mypy = "*"
+pandas-stubs = "*"
+pandera-mypy = "*"
+
+# additional pixi workspace, environment, feature etc. declarations
 
 [tool.pixi.workspace]
 preview = ["pixi-build"]
@@ -49,12 +64,6 @@ dependencies = { python = "3.10.*" }
 dependencies = { python = "3.11.*" }
 [tool.pixi.feature.py312]
 dependencies = { python = "3.12.*" }
-
-[tool.pixi.feature.test.dependencies]
-pytest = ">=8.3.5,<9"
-mypy = "*"
-pandas-stubs = "*"
-pandera-mypy = "*"
 
 [tool.pixi.feature.test.pypi-dependencies]
 "ecoscope-earthranger-io-core" = { path = ".", editable = true }

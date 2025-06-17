@@ -70,7 +70,7 @@ def _observations_post_cast(ecoscope_rb: pa.RecordBatch) -> pa.RecordBatch:
     # NOTE: workaround for missing +00:00 timezone offset in EarthRanger data, can be removed
     # once EarthRanger data is fixed to include timezone offsets.
     fixtime_naive = ecoscope_rb.column("fixtime")
-    fixtime_utc = pc.assume_timezone(fixtime_naive, timezone="UTC")
+    fixtime_utc = pc.assume_timezone(fixtime_naive, timezone="UTC")  # type: ignore[call-overload]
     return ecoscope_rb.drop_columns("fixtime").append_column("fixtime", fixtime_utc)
 
 
