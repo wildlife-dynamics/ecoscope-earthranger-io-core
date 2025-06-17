@@ -24,7 +24,7 @@ dependencies = [
     # and geopandas in particular is a heavy dependency
     # only needed for the client side
 ]
-[optional-dependencies]
+[project.optional-dependencies]
 test = [
     "fastapi",
     "pytest",
