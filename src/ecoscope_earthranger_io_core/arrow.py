@@ -1,5 +1,6 @@
 import geoarrow.pyarrow  # type: ignore[import-untyped]
 import pyarrow as pa
+import pyarrow.compute as pc
 
 
 OBSERVATIONS_EARTHRANGER_ARROW_SCHEMA = pa.schema(
@@ -14,7 +15,7 @@ OBSERVATIONS_EARTHRANGER_ARROW_SCHEMA = pa.schema(
 OBSERVATIONS_ECOSCOPE_ARROW_SCHEMA = pa.schema(
     [
         ("geometry", geoarrow.pyarrow.wkb()),
-        ("fixtime", pa.string()),
+        ("fixtime", pa.timestamp("ns")),
         ("groupby_col", pa.string()),
         ("extra__subject__name", pa.string()),
         ("extra__subject__subject_subtype", pa.string()),
@@ -41,4 +42,9 @@ def to_ecoscope_schema(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
             "subject_subtype_id": "extra__subject__subject_subtype",
         }
     )
-    return renamed_columns.cast(OBSERVATIONS_ECOSCOPE_ARROW_SCHEMA)
+    ecoscope_rb = renamed_columns.cast(OBSERVATIONS_ECOSCOPE_ARROW_SCHEMA)
+    # NOTE: workaround for missing +00:00 timezone offset in EarthRanger data, can be removed
+    # once EarthRanger data is fixed to include timezone offsets.
+    fixtime_naive = ecoscope_rb.column("fixtime")
+    fixtime_utc = pc.assume_timezone(fixtime_naive, timezone="UTC")
+    return ecoscope_rb.drop_columns("fixtime").append_column("fixtime", fixtime_utc)

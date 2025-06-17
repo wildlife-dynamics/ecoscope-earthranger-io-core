@@ -54,15 +54,4 @@ def test_observations_from_arrow(mock_observations_record_batch: pyarrow.RecordB
     table = pyarrow.Table.from_batches([as_ecoscope_rb])
     obs = gpd.GeoDataFrame.from_arrow(table)
     assert len(obs) > 0
-    # rename_columns = {
-    #     "location": "geometry",
-    #     "subject_id": "groupby_col",
-    #     "recorded_at": "fixtime",
-    #     "subject_name": "extra__subject__name",
-    #     "subject_subtype_id": "extra__subject__subject_subtype",
-    # }
-    # obs = gdf.rename(columns=rename_columns)
-    # obs["fixtime"] = pd.to_datetime(obs["fixtime"], utc=True)
-    # obs["fixtime"] = obs["fixtime"].astype("datetime64[ns, UTC]")  # type: ignore[call-overload]
-    # obs["junk_status"] = False
     ObservationsGDFSchema.validate(obs, lazy=True)
