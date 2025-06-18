@@ -50,9 +50,7 @@ def test_observations_gdf_schema_missing_column_raises():
 
 
 def test_observations_from_arrow(mock_observations_record_batch: pyarrow.RecordBatch):
-    as_ecoscope_rb = OBSERVATIONS_CONVERSION.to_ecoscope_rb(
-        mock_observations_record_batch
-    )
+    as_ecoscope_rb = OBSERVATIONS_CONVERSION.convert(mock_observations_record_batch)
     table = pyarrow.Table.from_batches([as_ecoscope_rb])
     obs = gpd.GeoDataFrame.from_arrow(table)
     assert len(obs) > 0

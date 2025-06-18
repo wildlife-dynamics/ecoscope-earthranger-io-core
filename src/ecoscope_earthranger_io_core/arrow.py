@@ -51,7 +51,7 @@ OBSERVATIONS_SCHEMA_EARTHRANGER_FULL = pa.schema(
 OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM = pa.schema(
     [
         ("location", geoarrow.pyarrow.wkb()),
-        ("recorded_at", pa.timestamp("ns")),
+        ("recorded_at", pa.string()),
         ("subject_id", pa.string()),
         ("subject_name", pa.string()),
         ("subject_subtype_id", pa.string()),
