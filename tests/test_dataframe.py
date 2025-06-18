@@ -14,7 +14,9 @@ import geopandas as gpd  # type: ignore[import-untyped]
 import pandera.pandas
 from shapely.geometry import Point
 
-from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_CONVERSION
+from ecoscope_earthranger_io_core.arrow import (
+    OBSERVATIONS_CONVERSION__EARTHRANGER_SLIM_V1__ECOSCOPE_SLIM_V1,
+)
 from ecoscope_earthranger_io_core.dataframe import ObservationsGDFSchema
 
 
@@ -50,7 +52,11 @@ def test_observations_gdf_schema_missing_column_raises():
 
 
 def test_observations_from_arrow(mock_observations_record_batch: pyarrow.RecordBatch):
-    as_ecoscope_rb = OBSERVATIONS_CONVERSION.convert(mock_observations_record_batch)
+    as_ecoscope_rb = (
+        OBSERVATIONS_CONVERSION__EARTHRANGER_SLIM_V1__ECOSCOPE_SLIM_V1.convert(
+            mock_observations_record_batch
+        )
+    )
     table = pyarrow.Table.from_batches([as_ecoscope_rb])
     obs = gpd.GeoDataFrame.from_arrow(table)
     assert len(obs) > 0
