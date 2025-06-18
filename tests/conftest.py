@@ -76,7 +76,13 @@ def _create_mock_observations_record_batch(
 
 
 @pytest.fixture
-def mock_observations_record_batch() -> pyarrow.RecordBatch:
+def nrecords() -> int:
+    """Fixture that provides the number of records to generate."""
+    return 1000
+
+
+@pytest.fixture
+def mock_observations_record_batch(nrecords: int) -> pyarrow.RecordBatch:
     """Fixture that provides a mock record batch of observations."""
     query = ObservationsQuery(
         tenant_id="tenant123",
@@ -84,4 +90,4 @@ def mock_observations_record_batch() -> pyarrow.RecordBatch:
         range_start=datetime(2023, 1, 1),
         range_end=datetime(2023, 12, 31),
     )
-    return _create_mock_observations_record_batch(query, nrecords=1000)
+    return _create_mock_observations_record_batch(query, nrecords=nrecords)

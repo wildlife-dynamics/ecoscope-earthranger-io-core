@@ -47,7 +47,7 @@ def app(async_batch_generator: Callable[[], AsyncIterable[pa.RecordBatch]]):
 
 
 @pytest.mark.asyncio
-async def test_client_get_table(app: FastAPI):
+async def test_client_get_table(app: FastAPI, nrecords: int) -> None:
     async with AsyncClient(
         transport=ASGITransport(app),
         base_url="http://test",
@@ -60,3 +60,4 @@ async def test_client_get_table(app: FastAPI):
         )
     assert isinstance(table, pa.Table)
     assert table.schema.equals(OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM__V1)
+    assert len(table) == nrecords
