@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
-from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA_EARTHRANGER
+from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM
 from ecoscope_earthranger_io_core.client import get_table
 from ecoscope_earthranger_io_core.serve import generate_bytes
 
@@ -28,7 +28,7 @@ def app(async_batch_generator: AsyncGenerator):
     @app.get("/stream/arrow")
     async def get_observations_streaming_arrow():
         content_stream = generate_bytes(
-            earthranger_schema=OBSERVATIONS_SCHEMA_EARTHRANGER,
+            earthranger_schema=OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM,
             async_batch_generator=async_batch_generator(),
             conversion=None,
         )
@@ -55,4 +55,4 @@ async def test_client_get_table(app: TestClient):
         headers=None,
     )
     assert isinstance(table, pa.Table)
-    assert table.schema.equals(OBSERVATIONS_SCHEMA_EARTHRANGER)
+    assert table.schema.equals(OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM)

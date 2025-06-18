@@ -33,16 +33,17 @@ class SchemaConversion:
 
 OBSERVATIONS_SCHEMA_EARTHRANGER_FULL = pa.schema(
     [
-        ("created_at", pa.timestamp()),
-        ("exclusion_flags", "mock-exclusion-flags"),
-        ("is_active", True),
+        ("created_at", pa.timestamp("ns")),
+        ("exclusion_flags", pa.string()),
+        ("is_active", pa.bool_()),
         ("location", geoarrow.pyarrow.wkb()),
         ("manufacturer_id", pa.string()),
-        ("recorded_at", pa.timestamp()),
+        ("recorded_at", pa.timestamp("ns")),
         ("subject_id", pa.string()),
         ("subject_name", pa.string()),
         ("subject_subtype_id", pa.string()),
-        ("das_tenant_id", pa.string())("domain", pa.string()),
+        ("das_tenant_id", pa.string()),
+        ("domain", pa.string()),
         ("observation_id", pa.string()),
         ("source_id", pa.string()),
     ],
@@ -50,7 +51,7 @@ OBSERVATIONS_SCHEMA_EARTHRANGER_FULL = pa.schema(
 OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM = pa.schema(
     [
         ("location", geoarrow.pyarrow.wkb()),
-        ("recorded_at", pa.timestamp()),
+        ("recorded_at", pa.timestamp("ns")),
         ("subject_id", pa.string()),
         ("subject_name", pa.string()),
         ("subject_subtype_id", pa.string()),
@@ -93,8 +94,8 @@ def _observations_post_cast(ecoscope_rb: pa.RecordBatch) -> pa.RecordBatch:
 
 
 OBSERVATIONS_CONVERSION = SchemaConversion(
-    source=OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM,
-    target=OBSERVATIONS_SCHEMA_ECOSCOPE,
+    source_schema=OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM,
+    target_schema=OBSERVATIONS_SCHEMA_ECOSCOPE,
     pre_cast_fn=_observations_pre_cast,
     post_cast_fn=_observations_post_cast,
 )
