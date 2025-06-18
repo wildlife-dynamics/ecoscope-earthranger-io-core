@@ -29,7 +29,7 @@ def app(async_batch_generator: Callable[[], AsyncIterable[pa.RecordBatch]]):
     @app.get("/stream/arrow")
     async def get_observations_streaming_arrow():
         content_stream = generate_bytes(
-            earthranger_schema=OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM,
+            source_schema=OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM,
             async_batch_generator=async_batch_generator(),
             conversion=None,
         )
