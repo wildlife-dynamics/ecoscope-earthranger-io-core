@@ -58,6 +58,10 @@ async def test_client_get_table(app: FastAPI, nrecords: int) -> None:
             query=None,  # Assuming no query parameters for this test
             headers=None,
         )
+    # TODO:
+    # - [ ] test actual query (and make it required)
+    # - [ ] test query w/ column drops
+    # - [ ] test schema conversion via query parameters
     assert isinstance(table, pa.Table)
     assert table.schema.equals(OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM__V1)
     assert len(table) == nrecords
