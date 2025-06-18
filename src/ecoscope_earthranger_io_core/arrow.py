@@ -8,31 +8,49 @@ import pyarrow.compute as pc
 
 @dataclass(frozen=True)
 class SchemaConversion:
-    """Template algorithm for EarthRanger to Ecoscope RecordBatch conversion."""
+    """Template algorithm for RecordBatch schema conversion."""
 
-    earthranger_schema: pa.Schema
-    ecoscope_schema: pa.Schema
+    source_schema: pa.Schema
+    target_schema: pa.Schema
     pre_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
     post_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
 
-    def to_ecoscope_rb(self, earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
-        """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
-        assert earthranger_rb.schema.equals(self.earthranger_schema), (
-            f"Expected input schema to be:\n {self.earthranger_schema}\n "
-            f"but got:\n {earthranger_rb.schema}"
+    def convert(self, source_rb: pa.RecordBatch) -> pa.RecordBatch:
+        """Convert a source RecordBatch (`source_rb`) to a RecordBatch
+        with the target schema.
+        """
+        assert source_rb.schema.equals(self.source_schema), (
+            f"Expected input schema to be:\n {self.source_schema}\n "
+            f"but got:\n {source_rb.schema}"
         )
         if self.pre_cast_fn:
-            earthranger_rb = self.pre_cast_fn(earthranger_rb)
-        ecoscope_rb = earthranger_rb.cast(self.ecoscope_schema)
+            source_rb = self.pre_cast_fn(source_rb)
+        target_rb = source_rb.cast(self.target_schema)
         if self.post_cast_fn:
-            ecoscope_rb = self.post_cast_fn(ecoscope_rb)
-        return ecoscope_rb
+            target_rb = self.post_cast_fn(target_rb)
+        return target_rb
 
 
-OBSERVATIONS_SCHEMA_EARTHRANGER = pa.schema(
+OBSERVATIONS_SCHEMA_EARTHRANGER_FULL = pa.schema(
+    [
+        ("created_at", pa.timestamp()),
+        ("exclusion_flags", "mock-exclusion-flags"),
+        ("is_active", True),
+        ("location", geoarrow.pyarrow.wkb()),
+        ("manufacturer_id", pa.string()),
+        ("recorded_at", pa.timestamp()),
+        ("subject_id", pa.string()),
+        ("subject_name", pa.string()),
+        ("subject_subtype_id", pa.string()),
+        ("das_tenant_id", pa.string())("domain", pa.string()),
+        ("observation_id", pa.string()),
+        ("source_id", pa.string()),
+    ],
+)
+OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM = pa.schema(
     [
         ("location", geoarrow.pyarrow.wkb()),
-        ("recorded_at", pa.string()),
+        ("recorded_at", pa.timestamp()),
         ("subject_id", pa.string()),
         ("subject_name", pa.string()),
         ("subject_subtype_id", pa.string()),
@@ -75,8 +93,8 @@ def _observations_post_cast(ecoscope_rb: pa.RecordBatch) -> pa.RecordBatch:
 
 
 OBSERVATIONS_CONVERSION = SchemaConversion(
-    earthranger_schema=OBSERVATIONS_SCHEMA_EARTHRANGER,
-    ecoscope_schema=OBSERVATIONS_SCHEMA_ECOSCOPE,
+    source=OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM,
+    target=OBSERVATIONS_SCHEMA_ECOSCOPE,
     pre_cast_fn=_observations_pre_cast,
     post_cast_fn=_observations_post_cast,
 )
