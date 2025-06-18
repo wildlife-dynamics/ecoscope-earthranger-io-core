@@ -1,4 +1,4 @@
-from typing import AsyncGenerator
+from typing import AsyncIterable, Callable
 
 import pyarrow as pa
 import pytest
@@ -14,8 +14,8 @@ from ecoscope_earthranger_io_core.serve import generate_bytes
 @pytest.fixture
 def async_batch_generator(
     mock_observations_record_batch: pa.RecordBatch,
-) -> AsyncGenerator[pa.RecordBatch, None]:
-    async def _async_generator():
+) -> Callable[[], AsyncIterable[pa.RecordBatch]]:
+    async def _async_generator() -> AsyncIterable[pa.RecordBatch]:
         for _ in range(1):  # Simulate a single batch for testing
             yield mock_observations_record_batch
 
@@ -23,7 +23,7 @@ def async_batch_generator(
 
 
 @pytest.fixture
-def app(async_batch_generator: AsyncGenerator):
+def app(async_batch_generator: Callable[[], AsyncIterable[pa.RecordBatch]]):
     app = FastAPI()
 
     @app.get("/stream/arrow")
