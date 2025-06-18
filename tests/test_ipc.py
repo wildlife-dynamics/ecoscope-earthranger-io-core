@@ -1,9 +1,10 @@
 from typing import AsyncGenerator
+
 import pyarrow as pa
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from fastapi.testclient import TestClient
+from httpx import AsyncClient, ASGITransport
 
 from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM
 from ecoscope_earthranger_io_core.client import get_table
@@ -42,17 +43,20 @@ def app(async_batch_generator: AsyncGenerator):
                 status_code=500, detail=f"Failed to read data: {str(e)}"
             )
 
-    with TestClient(app) as client:
-        yield client
+    return app
 
 
 @pytest.mark.asyncio
-async def test_client_get_table(app: TestClient):
-    table = await get_table(
-        route="/stream/arrow",
-        query=None,  # Assuming no query parameters for this test
-        base_url=app.base_url,
-        headers=None,
-    )
+async def test_client_get_table(app: FastAPI):
+    async with AsyncClient(
+        transport=ASGITransport(app),
+        base_url="http://test",
+    ) as client:
+        table = await get_table(
+            client=client,
+            route="/stream/arrow",
+            query=None,  # Assuming no query parameters for this test
+            headers=None,
+        )
     assert isinstance(table, pa.Table)
     assert table.schema.equals(OBSERVATIONS_SCHEMA_EARTHRANGER_SLIM)
