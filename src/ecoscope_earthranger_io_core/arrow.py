@@ -20,8 +20,8 @@ class SchemaConversion:
         with the target schema.
         """
         assert source_rb.schema.equals(self.source_schema), (
-            f"Expected input schema to be:\n {self.source_schema}\n "
-            f"but got:\n {source_rb.schema}"
+            f"Expected input schema to be:\n\n{self.source_schema}\n\n"
+            f"but got:\n\n{source_rb.schema}\n\n"
         )
         if self.pre_cast_fn:
             source_rb = self.pre_cast_fn(source_rb)
@@ -94,7 +94,7 @@ def _observations_post_cast(ecoscope_rb: pa.RecordBatch) -> pa.RecordBatch:
 
 
 OBSERVATIONS_CONVERSION = SchemaConversion(
-    source_schema=OBSERVATIONS_SCHEMA__EARTHRANGER_FULL__V1,
+    source_schema=OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM__V1,
     target_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM__V1,
     pre_cast_fn=_observations_pre_cast,
     post_cast_fn=_observations_post_cast,
