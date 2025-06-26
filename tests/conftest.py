@@ -60,13 +60,14 @@ def _mock_observations_generator(
                 yield {col: record[col] for col in columns if col in record}
 
 
-def _create_mock_observations_record_batch(
+def create_mock_observations_record_batch(
     query: ObservationsQuery,
-    nrecords: int = 1000,
+    columns: list[str] | None = None,
     schema: pyarrow.Schema = OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1,
+    nrecords: int = 1000,
 ) -> pyarrow.RecordBatch:
     pylist = []
-    for item in _mock_observations_generator(**query.model_dump()):
+    for item in _mock_observations_generator(**query.model_dump(), columns=columns):
         pylist.append(item)
         if len(pylist) == nrecords:
             break
@@ -90,4 +91,4 @@ def mock_observations_record_batch(nrecords: int) -> pyarrow.RecordBatch:
         range_start=datetime(2023, 1, 1),
         range_end=datetime(2023, 12, 31),
     )
-    return _create_mock_observations_record_batch(query, nrecords=nrecords)
+    return create_mock_observations_record_batch(query, nrecords=nrecords)

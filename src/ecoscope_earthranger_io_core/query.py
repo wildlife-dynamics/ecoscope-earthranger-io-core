@@ -1,14 +1,13 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class _WarehouseQuery(BaseModel):
     tenant_id: str
     range_start: datetime
     range_end: datetime
-    columns: list[str] = Field(default_factory=list)
 
 
 class ObservationsQuery(_WarehouseQuery):
@@ -22,7 +21,6 @@ class ObservationsQuery(_WarehouseQuery):
     ...     tenant_id="tenant123",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
-    ...     columns=["id", "time", "species", "location"],
     ...     subject_ids=["subject1", "subject2"],
     ... )
     >>>
@@ -43,7 +41,6 @@ class EventsQuery(_WarehouseQuery):
     ...     tenant_id="tenant123",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
-    ...     columns=["id", "time", "event_type", "event_category", "reported_by", "serial_number", "geometry"],
     ...     event_ids=["subject1", "subject2"],
     ... )
     >>>
@@ -72,7 +69,6 @@ class PatrolObservationsQuery(_PatrolsQuery):
     ...     tenant_id="tenant123",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
-    ...     columns=["id", "time", "species", "location"],
     ...     patrol_ids=["patrol1", "patrol2"],
     ...     patrol_statuses=["done"],
     ... )
@@ -94,7 +90,6 @@ class PatrolEventsQuery(_PatrolsQuery):
     ...     tenant_id="tenant123",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
-    ...     columns=["id", "time", "species", "location"],
     ...     patrol_ids=["patrol1", "patrol2"],
     ...     patrol_statuses=["done"],
     ...     event_type_ids=["event1", "event2"],

@@ -86,7 +86,7 @@ class TransformSpec:
     post_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
 
     @cached_property
-    def _pre_transform_schema(self) -> pa.Schema:
+    def pre_transform_schema(self) -> pa.Schema:
         """Return the schema to use before any transformation."""
         if self.required_columns:
             return _subset_schema(self.persisted_schema, self.required_columns)
@@ -94,7 +94,7 @@ class TransformSpec:
 
     def transform(self, input_rb: pa.RecordBatch) -> pa.RecordBatch:
         """Transform an input RecordBatch to a RecordBatch with the target schema."""
-        _rb = input_rb.cast(self._pre_transform_schema)
+        _rb = input_rb.cast(self.pre_transform_schema)
         if self.pre_cast_fn:
             _rb = self.pre_cast_fn(_rb)
         if self.target_schema:
@@ -132,7 +132,7 @@ TRANSFORMS: dict[SchemaChoices, TransformSpec] = {
         persisted_schema=OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1
     ),
     SchemaChoices.ECOSCOPE_SLIM_V1: TransformSpec(
-        persisted_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
+        persisted_schema=OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1,
         required_columns=[
             "location",
             "recorded_at",

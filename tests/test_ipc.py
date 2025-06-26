@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import AsyncIterable, Callable
 
 import pyarrow as pa
@@ -14,26 +15,27 @@ from ecoscope_earthranger_io_core.arrow import (
 from ecoscope_earthranger_io_core.client import get_table
 from ecoscope_earthranger_io_core.query import ObservationsQuery
 
+from conftest import create_mock_observations_record_batch
 
 RecordBatchGeneratorGetter = Callable[
     [ObservationsQuery], Callable[[], AsyncIterable[pa.RecordBatch]]
 ]
 
 
-@pytest.fixture
 def get_async_rb_generator_from_storage_backend(
-    mock_observations_record_batch: pa.RecordBatch,
-) -> RecordBatchGeneratorGetter:
-    def _get_rb_generator(
-        query: ObservationsQuery,
-    ) -> AsyncIterable[pa.RecordBatch]:
-        async def _async_generator() -> AsyncIterable[pa.RecordBatch]:
-            for _ in range(1):  # Simulate a single batch for testing
-                yield mock_observations_record_batch
+    query: ObservationsQuery,
+    columns: list[str],
+    schema: pa.Schema,
+) -> AsyncIterable[pa.RecordBatch]:
+    async def _async_generator() -> AsyncIterable[pa.RecordBatch]:
+        for _ in range(1):  # Simulate a single batch for testing
+            yield create_mock_observations_record_batch(
+                query=query,
+                columns=columns,
+                schema=schema,
+            )
 
-        return _async_generator
-
-    return _get_rb_generator
+    return _async_generator
 
 
 @pytest.fixture
@@ -53,7 +55,8 @@ def app(get_async_rb_generator_from_storage_backend: RecordBatchGeneratorGetter)
         transform = TRANSFORMS[schema]
         async_batch_generator = get_async_rb_generator_from_storage_backend(
             query,
-            columns=transform.required_columns or None,
+            columns=transform.required_columns,
+            schema=transform.pre_transform_schema,
         )
         content_stream = transform.generate_bytes(
             async_batch_generator=async_batch_generator()
@@ -73,6 +76,12 @@ def app(get_async_rb_generator_from_storage_backend: RecordBatchGeneratorGetter)
 
 @pytest.mark.asyncio
 async def test_client_get_table(app: FastAPI, nrecords: int) -> None:
+    query = ObservationsQuery(
+        tenant_id="tenant123",
+        subject_ids=["subject1", "subject2"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 12, 31),
+    )
     async with AsyncClient(
         transport=ASGITransport(app),
         base_url="http://test",
@@ -80,12 +89,10 @@ async def test_client_get_table(app: FastAPI, nrecords: int) -> None:
         table = await get_table(
             client=client,
             route="/stream/arrow",
-            query=None,  # Assuming no query parameters for this test
+            query=query.model_dump(),
             headers=None,
         )
     # TODO:
-    # - [ ] test actual query (and make it required)
-    # - [ ] test query w/ column drops
     # - [ ] test schema conversion via query parameters
     assert isinstance(table, pa.Table)
     assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
