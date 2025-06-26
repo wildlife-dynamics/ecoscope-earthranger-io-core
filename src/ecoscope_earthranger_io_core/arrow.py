@@ -12,12 +12,12 @@ import pyarrow.compute as pc
 
 OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
     [
-        ("created_at", pa.timestamp("ns")),
+        ("created_at", pa.string()),
         ("exclusion_flags", pa.string()),
         ("is_active", pa.bool_()),
         ("location", geoarrow.pyarrow.wkb()),
         ("manufacturer_id", pa.string()),
-        ("recorded_at", pa.timestamp("ns")),
+        ("recorded_at", pa.string()),
         ("subject_id", pa.string()),
         ("subject_name", pa.string()),
         ("subject_subtype_id", pa.string()),
@@ -68,6 +68,11 @@ class SchemaChoices(str, Enum):
     ECOSCOPE_SLIM_V1 = "ECOSCOPE_SLIM_V1"
 
 
+def _subset_schema(schema: pa.Schema, fields: list[str]) -> pa.Schema:
+    """Return a new schema with only specified subset of fields retained."""
+    return pa.schema([field for field in schema if field.name in fields])
+
+
 @dataclass(frozen=True)
 class TransformSpec:
     persisted_schema: pa.Schema  # the "on disk" representation
@@ -80,18 +85,11 @@ class TransformSpec:
     pre_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
     post_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
 
-    def _subset_schema(
-        schema: pa.Schema,
-        fields: list[str],
-    ) -> pa.Schema:
-        """Return a new schema with only specified subset of fields retained."""
-        return pa.schema([field for field in schema if field.name in fields])
-
     @cached_property
     def _pre_transform_schema(self) -> pa.Schema:
         """Return the schema to use before any transformation."""
         if self.required_columns:
-            return self._subset_schema(self.persisted_schema, self.required_columns)
+            return _subset_schema(self.persisted_schema, self.required_columns)
         return self.persisted_schema
 
     def transform(self, input_rb: pa.RecordBatch) -> pa.RecordBatch:
