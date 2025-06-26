@@ -15,31 +15,15 @@ from ecoscope_earthranger_io_core.arrow import (
 from ecoscope_earthranger_io_core.client import get_table
 from ecoscope_earthranger_io_core.query import ObservationsQuery
 
-from conftest import create_mock_observations_record_batch
+from conftest import get_async_rb_generator_from_storage_backend
 
 RecordBatchGeneratorGetter = Callable[
     [ObservationsQuery], Callable[[], AsyncIterable[pa.RecordBatch]]
 ]
 
 
-def get_async_rb_generator_from_storage_backend(
-    query: ObservationsQuery,
-    columns: list[str],
-    schema: pa.Schema,
-) -> AsyncIterable[pa.RecordBatch]:
-    async def _async_generator() -> AsyncIterable[pa.RecordBatch]:
-        for _ in range(1):  # Simulate a single batch for testing
-            yield create_mock_observations_record_batch(
-                query=query,
-                columns=columns,
-                schema=schema,
-            )
-
-    return _async_generator
-
-
 @pytest.fixture
-def app(get_async_rb_generator_from_storage_backend: RecordBatchGeneratorGetter):
+def app():
     app = FastAPI()
 
     @app.get("/stream/arrow")
@@ -51,7 +35,6 @@ def app(get_async_rb_generator_from_storage_backend: RecordBatchGeneratorGetter)
         ),
     ):
         """Stream observations as an Arrow IPC stream."""
-
         transform = TRANSFORMS[schema]
         async_batch_generator = get_async_rb_generator_from_storage_backend(
             query,
@@ -89,7 +72,7 @@ async def test_client_get_table(app: FastAPI, nrecords: int) -> None:
         table = await get_table(
             client=client,
             route="/stream/arrow",
-            query=query.model_dump(),
+            query=query,
             headers=None,
         )
     # TODO:

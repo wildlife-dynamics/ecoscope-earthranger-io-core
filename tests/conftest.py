@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Generator
+from typing import AsyncIterable, Generator
 
 import pyarrow
 import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
@@ -74,6 +74,22 @@ def create_mock_observations_record_batch(
     if not pylist:
         raise ValueError("No records generated, check the query parameters.")
     return pyarrow.RecordBatch.from_pylist(pylist, schema=schema)
+
+
+def get_async_rb_generator_from_storage_backend(
+    query: ObservationsQuery,
+    columns: list[str],
+    schema: pyarrow.Schema,
+) -> AsyncIterable[pyarrow.RecordBatch]:
+    async def _async_generator() -> AsyncIterable[pyarrow.RecordBatch]:
+        for _ in range(1):  # Simulate a single batch for testing
+            yield create_mock_observations_record_batch(
+                query=query,
+                columns=columns,
+                schema=schema,
+            )
+
+    return _async_generator
 
 
 @pytest.fixture
