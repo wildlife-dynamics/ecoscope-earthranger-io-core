@@ -7,7 +7,6 @@ from typing import AsyncIterable, Callable
 
 import geoarrow.pyarrow  # type: ignore[import-untyped]
 import pyarrow as pa
-import pyarrow.compute as pc
 
 
 OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
@@ -30,7 +29,7 @@ OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
 OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
     [
         ("geometry", geoarrow.pyarrow.wkb()),
-        ("fixtime", pa.timestamp("ns")),
+        ("fixtime", pa.timestamp("ns", tz="UTC")),
         ("groupby_col", pa.string()),
         ("extra__subject__name", pa.string()),
         ("extra__subject__subject_subtype", pa.string()),
@@ -44,7 +43,7 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
 
     junk_status = pa.array([False] * earthranger_rb.num_rows, type=pa.bool_())
     add_junk_status = earthranger_rb.append_column("junk_status", junk_status)
-    return add_junk_status.rename_columns(
+    renamed = add_junk_status.rename_columns(
         {
             "location": "geometry",
             "subject_id": "groupby_col",
@@ -53,14 +52,14 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
             "subject_subtype_id": "extra__subject__subject_subtype",
         }
     )
-
-
-def _observations_post_cast(ecoscope_rb: pa.RecordBatch) -> pa.RecordBatch:
     # NOTE: workaround for missing +00:00 timezone offset in EarthRanger data, can be removed
     # once EarthRanger data is fixed to include timezone offsets.
-    fixtime_naive = ecoscope_rb.column("fixtime")
-    fixtime_utc = pc.assume_timezone(fixtime_naive, timezone="UTC")  # type: ignore[call-overload]
-    return ecoscope_rb.drop_columns("fixtime").append_column("fixtime", fixtime_utc)
+    fixtime_idx = renamed.schema.get_field_index("fixtime")
+    fixtime_naive = renamed.column("fixtime")
+    fixtime_utc = [t + "+00:00" for t in fixtime_naive.to_pylist()]
+    return renamed.drop_columns("fixtime").add_column(
+        fixtime_idx, "fixtime", fixtime_utc
+    )
 
 
 class SchemaChoices(str, Enum):
@@ -142,6 +141,5 @@ TRANSFORMS: dict[SchemaChoices, TransformSpec] = {
         ],
         target_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
         pre_cast_fn=_observations_pre_cast,
-        post_cast_fn=_observations_post_cast,
     ),
 }
