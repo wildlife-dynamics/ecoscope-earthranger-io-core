@@ -7,7 +7,7 @@ import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pytest
 
 from ecoscope_earthranger_io_core.query import ObservationsQuery
-from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM_V1
+from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1
 
 
 def _split_datetime_range_by_delta(
@@ -63,7 +63,7 @@ def _mock_observations_generator(
 def _create_mock_observations_record_batch(
     query: ObservationsQuery,
     nrecords: int = 1000,
-    schema: pyarrow.Schema = OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM_V1,
+    schema: pyarrow.Schema = OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1,
 ) -> pyarrow.RecordBatch:
     pylist = []
     for item in _mock_observations_generator(**query.model_dump()):

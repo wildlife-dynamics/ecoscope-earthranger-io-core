@@ -1,34 +1,13 @@
+import asyncio
 from dataclasses import dataclass
-from typing import Callable
+from enum import Enum
+from functools import cached_property
+from io import BytesIO
+from typing import AsyncIterable, Callable
 
 import geoarrow.pyarrow  # type: ignore[import-untyped]
 import pyarrow as pa
 import pyarrow.compute as pc
-
-
-@dataclass(frozen=True)
-class SchemaConversion:
-    """Template algorithm for RecordBatch schema conversion."""
-
-    source_schema: pa.Schema
-    target_schema: pa.Schema
-    pre_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
-    post_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
-
-    def convert(self, source_rb: pa.RecordBatch) -> pa.RecordBatch:
-        """Convert a source RecordBatch (`source_rb`) to a RecordBatch
-        with the target schema.
-        """
-        assert source_rb.schema.equals(self.source_schema), (
-            f"Expected input schema to be:\n\n{self.source_schema}\n\n"
-            f"but got:\n\n{source_rb.schema}\n\n"
-        )
-        if self.pre_cast_fn:
-            source_rb = self.pre_cast_fn(source_rb)
-        target_rb = source_rb.cast(self.target_schema)
-        if self.post_cast_fn:
-            target_rb = self.post_cast_fn(target_rb)
-        return target_rb
 
 
 OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
@@ -47,15 +26,6 @@ OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
         ("observation_id", pa.string()),
         ("source_id", pa.string()),
     ],
-)
-OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM_V1 = pa.schema(
-    [
-        ("location", geoarrow.pyarrow.wkb()),
-        ("recorded_at", pa.string()),
-        ("subject_id", pa.string()),
-        ("subject_name", pa.string()),
-        ("subject_subtype_id", pa.string()),
-    ]
 )
 OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
     [
@@ -93,9 +63,87 @@ def _observations_post_cast(ecoscope_rb: pa.RecordBatch) -> pa.RecordBatch:
     return ecoscope_rb.drop_columns("fixtime").append_column("fixtime", fixtime_utc)
 
 
-OBSERVATIONS_CONVERSION__EARTHRANGER_SLIM_V1__ECOSCOPE_SLIM_V1 = SchemaConversion(
-    source_schema=OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM_V1,
-    target_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
-    pre_cast_fn=_observations_pre_cast,
-    post_cast_fn=_observations_post_cast,
-)
+class SchemaChoices(str, Enum):
+    EARTHRANGER_FULL_V1 = "EARTHRANGER_FULL_V1"
+    ECOSCOPE_SLIM_V1 = "ECOSCOPE_SLIM_V1"
+
+
+@dataclass(frozen=True)
+class TransformSpec:
+    persisted_schema: pa.Schema  # the "on disk" representation
+    target_schema: pa.Schema | None = (
+        None  # a different schema to convert to, if desired
+    )
+    required_columns: list[str] | None = (
+        None  # columns from the "on disk" repr that are required to realize this transformation
+    )
+    pre_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
+    post_cast_fn: Callable[[pa.RecordBatch], pa.RecordBatch] | None = None
+
+    def _subset_schema(
+        schema: pa.Schema,
+        fields: list[str],
+    ) -> pa.Schema:
+        """Return a new schema with only specified subset of fields retained."""
+        return pa.schema([field for field in schema if field.name in fields])
+
+    @cached_property
+    def _pre_transform_schema(self) -> pa.Schema:
+        """Return the schema to use before any transformation."""
+        if self.required_columns:
+            return self._subset_schema(self.persisted_schema, self.required_columns)
+        return self.persisted_schema
+
+    def transform(self, input_rb: pa.RecordBatch) -> pa.RecordBatch:
+        """Transform an input RecordBatch to a RecordBatch with the target schema."""
+        _rb = input_rb.cast(self._pre_transform_schema)
+        if self.pre_cast_fn:
+            _rb = self.pre_cast_fn(_rb)
+        if self.target_schema:
+            _rb = _rb.cast(self.target_schema)
+        if self.post_cast_fn:
+            _rb = self.post_cast_fn(_rb)
+        return _rb
+
+    @property
+    def stream_schema(self) -> pa.Schema:
+        """The schema of the stream that will be returned by the transformation."""
+        return self.target_schema or self.persisted_schema
+
+    async def generate_bytes(
+        self,
+        async_batch_generator: AsyncIterable[pa.RecordBatch],
+    ) -> AsyncIterable[bytes]:
+        sink = BytesIO()
+        writer = pa.ipc.new_stream(sink, self.stream_schema)
+        try:
+            async for batch in async_batch_generator:
+                if self.target_schema:
+                    batch = self.transform(batch)
+                sink.seek(0)
+                sink.truncate(0)
+                await asyncio.to_thread(writer.write_batch, batch)
+                sink.seek(0)
+                yield sink.getvalue()
+        finally:
+            await asyncio.to_thread(writer.close)
+
+
+TRANSFORMS: dict[SchemaChoices, TransformSpec] = {
+    SchemaChoices.EARTHRANGER_FULL_V1: TransformSpec(
+        persisted_schema=OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1
+    ),
+    SchemaChoices.ECOSCOPE_SLIM_V1: TransformSpec(
+        persisted_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
+        required_columns=[
+            "location",
+            "recorded_at",
+            "subject_id",
+            "subject_name",
+            "subject_subtype_id",
+        ],
+        target_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
+        pre_cast_fn=_observations_pre_cast,
+        post_cast_fn=_observations_post_cast,
+    ),
+}

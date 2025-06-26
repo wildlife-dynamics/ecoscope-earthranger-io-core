@@ -2,36 +2,61 @@ from typing import AsyncIterable, Callable
 
 import pyarrow as pa
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from httpx import AsyncClient, ASGITransport
 
-from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM_V1
+from ecoscope_earthranger_io_core.arrow import (
+    OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
+    TRANSFORMS,
+    SchemaChoices,
+)
 from ecoscope_earthranger_io_core.client import get_table
-from ecoscope_earthranger_io_core.serve import generate_bytes
+from ecoscope_earthranger_io_core.query import ObservationsQuery
+
+
+RecordBatchGeneratorGetter = Callable[
+    [ObservationsQuery], Callable[[], AsyncIterable[pa.RecordBatch]]
+]
 
 
 @pytest.fixture
-def async_batch_generator(
+def get_async_rb_generator_from_storage_backend(
     mock_observations_record_batch: pa.RecordBatch,
-) -> Callable[[], AsyncIterable[pa.RecordBatch]]:
-    async def _async_generator() -> AsyncIterable[pa.RecordBatch]:
-        for _ in range(1):  # Simulate a single batch for testing
-            yield mock_observations_record_batch
+) -> RecordBatchGeneratorGetter:
+    def _get_rb_generator(
+        query: ObservationsQuery,
+    ) -> AsyncIterable[pa.RecordBatch]:
+        async def _async_generator() -> AsyncIterable[pa.RecordBatch]:
+            for _ in range(1):  # Simulate a single batch for testing
+                yield mock_observations_record_batch
 
-    return _async_generator
+        return _async_generator
+
+    return _get_rb_generator
 
 
 @pytest.fixture
-def app(async_batch_generator: Callable[[], AsyncIterable[pa.RecordBatch]]):
+def app(get_async_rb_generator_from_storage_backend: RecordBatchGeneratorGetter):
     app = FastAPI()
 
     @app.get("/stream/arrow")
-    async def get_observations_streaming_arrow():
-        content_stream = generate_bytes(
-            source_schema=OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM_V1,
-            async_batch_generator=async_batch_generator(),
-            conversion=None,
+    async def get_observations_streaming_arrow(
+        query: ObservationsQuery,
+        schema: SchemaChoices = Query(
+            "ECOSCOPE_SLIM_V1",
+            description="Schema to use for the response",
+        ),
+    ):
+        """Stream observations as an Arrow IPC stream."""
+
+        transform = TRANSFORMS[schema]
+        async_batch_generator = get_async_rb_generator_from_storage_backend(
+            query,
+            columns=transform.required_columns or None,
+        )
+        content_stream = transform.generate_bytes(
+            async_batch_generator=async_batch_generator()
         )
         try:
             return StreamingResponse(
@@ -63,5 +88,5 @@ async def test_client_get_table(app: FastAPI, nrecords: int) -> None:
     # - [ ] test query w/ column drops
     # - [ ] test schema conversion via query parameters
     assert isinstance(table, pa.Table)
-    assert table.schema.equals(OBSERVATIONS_SCHEMA__EARTHRANGER_SLIM_V1)
+    assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
     assert len(table) == nrecords
