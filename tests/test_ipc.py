@@ -3,19 +3,16 @@ from typing import AsyncIterable, Callable
 
 import pyarrow as pa
 import pytest
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI
 from httpx import AsyncClient, ASGITransport
 
 from ecoscope_earthranger_io_core.arrow import (
     OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
-    TRANSFORMS,
-    SchemaChoices,
 )
 from ecoscope_earthranger_io_core.client import get_table
 from ecoscope_earthranger_io_core.query import ObservationsQuery
 
-from conftest import get_async_rb_generator_from_storage_backend
+from _fastapi_example import app as _app
 
 RecordBatchGeneratorGetter = Callable[
     [ObservationsQuery], Callable[[], AsyncIterable[pa.RecordBatch]]
@@ -24,37 +21,7 @@ RecordBatchGeneratorGetter = Callable[
 
 @pytest.fixture
 def app():
-    app = FastAPI()
-
-    @app.get("/stream/arrow")
-    async def get_observations_streaming_arrow(
-        query: ObservationsQuery,
-        schema: SchemaChoices = Query(
-            "ECOSCOPE_SLIM_V1",
-            description="Schema to use for the response",
-        ),
-    ):
-        """Stream observations as an Arrow IPC stream."""
-        transform = TRANSFORMS[schema]
-        async_batch_generator = get_async_rb_generator_from_storage_backend(
-            query,
-            columns=transform.required_columns,
-            schema=transform.pre_transform_schema,
-        )
-        content_stream = transform.generate_bytes(
-            async_batch_generator=async_batch_generator()
-        )
-        try:
-            return StreamingResponse(
-                content_stream,
-                media_type="application/vnd.apache.arrow.stream",
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Failed to read data: {str(e)}"
-            )
-
-    return app
+    return _app
 
 
 @pytest.mark.asyncio
