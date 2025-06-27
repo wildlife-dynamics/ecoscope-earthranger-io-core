@@ -9,13 +9,13 @@ from ecoscope_earthranger_io_core.query import ObservationsQuery
 async def get_table(
     client: httpx.AsyncClient,
     route: str,
-    query: ObservationsQuery | None,
+    query: ObservationsQuery,
     headers: dict[str, str] | None = None,
 ):
     async with client.stream(
         "GET",
         route,
-        params=query.model_dump() if query else None,
+        params=query.model_dump(),
         headers=headers,
         timeout=60,
     ) as response:
