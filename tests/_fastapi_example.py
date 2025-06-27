@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from ecoscope_earthranger_io_core.arrow import TRANSFORMS, SchemaChoices
@@ -11,7 +11,7 @@ app = FastAPI()
 
 @app.get("/stream/arrow")
 async def get_observations_streaming_arrow(
-    query: ObservationsQuery,
+    query: ObservationsQuery = Depends(ObservationsQuery.from_query_params),
     schema: SchemaChoices = Query(
         "ECOSCOPE_SLIM_V1",
         description="Schema to use for the response",

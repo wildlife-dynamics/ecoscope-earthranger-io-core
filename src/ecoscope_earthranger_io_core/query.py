@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
+from fastapi import Query
 from pydantic import BaseModel
 
 
@@ -28,6 +29,21 @@ class ObservationsQuery(_WarehouseQuery):
     """
 
     subject_ids: list[str]
+
+    @classmethod
+    def from_query_params(
+        cls,
+        tenant_id: str = Query(...),
+        range_start: datetime = Query(...),
+        range_end: datetime = Query(...),
+        subject_ids: list[str] = Query(...),
+    ) -> "ObservationsQuery":
+        return cls(
+            tenant_id=tenant_id,
+            range_start=range_start,
+            range_end=range_end,
+            subject_ids=subject_ids,
+        )
 
 
 class EventsQuery(_WarehouseQuery):
