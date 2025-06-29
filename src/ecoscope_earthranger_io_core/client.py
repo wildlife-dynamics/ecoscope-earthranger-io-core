@@ -10,7 +10,7 @@ from pydantic import BaseModel, SecretStr
 from ecoscope_earthranger_io_core.query import ObservationsQuery
 
 
-async def get_table(
+async def _get_table(
     client: httpx.AsyncClient,
     route: str,
     query: ObservationsQuery,
@@ -90,7 +90,7 @@ class ERWarehouseClient(BaseModel):
         )
         # TODO: how do we cache a per-instance client, while still using a context manager?
         async with httpx.AsyncClient(base_url=self._warehouse_base_url) as client:
-            table = await get_table(
+            table = await _get_table(
                 client=client,
                 route=f"{self._warehouse_observations_router}/stream/arrow",
                 query=query,

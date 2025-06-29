@@ -9,7 +9,7 @@ from httpx import AsyncClient, ASGITransport
 from ecoscope_earthranger_io_core.arrow import (
     OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
 )
-from ecoscope_earthranger_io_core.client import get_table
+from ecoscope_earthranger_io_core.client import _get_table
 from ecoscope_earthranger_io_core.query import ObservationsQuery
 
 from _fastapi_example import app as _app
@@ -25,7 +25,7 @@ def app():
 
 
 @pytest.mark.asyncio
-async def test_client_get_table(app: FastAPI, nrecords: int) -> None:
+async def test_client__get_table(app: FastAPI, nrecords: int) -> None:
     query = ObservationsQuery(
         tenant_id="tenant123",
         subject_ids=["subject1", "subject2"],
@@ -36,7 +36,7 @@ async def test_client_get_table(app: FastAPI, nrecords: int) -> None:
         transport=ASGITransport(app),
         base_url="http://test",
     ) as client:
-        table = await get_table(
+        table = await _get_table(
             client=client,
             route="/stream/arrow",
             query=query,
