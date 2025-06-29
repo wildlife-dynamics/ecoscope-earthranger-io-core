@@ -51,6 +51,17 @@ class ERWarehouseClient(BaseModel):
         # TODO: use self.server to compute
         return "123"  # FIXME
 
+    def _login(self) -> None:
+        raise NotImplementedError(
+            "Login not yet implemented, please pass `token` to constructor."
+        )
+
+    @cached_property
+    def _token(self) -> SecretStr:
+        if not self.token:
+            self._login()
+        return self.token
+
     def _subject_group_name_to_subject_ids(self, subject_group_name: str) -> list[str]:
         # TODO: use self.server + self.username to compute visibility
         return ["subject1", "subject2"]  # FIXME
@@ -83,7 +94,7 @@ class ERWarehouseClient(BaseModel):
                 client=client,
                 route="/stream/arrow",
                 query=query,
-                headers=None,
+                headers={"X-EarthRanger-API-Token": self._token.get_secret_value()},
             )
 
         return table
