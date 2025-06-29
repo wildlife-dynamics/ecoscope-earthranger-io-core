@@ -92,7 +92,7 @@ class ERWarehouseClient(BaseModel):
         async with httpx.AsyncClient(base_url=self._warehouse_base_url) as client:
             table = await get_table(
                 client=client,
-                route="/stream/arrow",
+                route=f"{self._warehouse_observations_router}/stream/arrow",
                 query=query,
                 headers={"X-EarthRanger-API-Token": self._token.get_secret_value()},
             )
