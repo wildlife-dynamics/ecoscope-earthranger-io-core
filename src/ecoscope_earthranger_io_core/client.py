@@ -1,4 +1,5 @@
 import io
+import warnings
 from datetime import datetime
 from functools import cached_property
 
@@ -64,6 +65,11 @@ class ERWarehouseClient(BaseModel):
         include_details: bool = True,
     ):
         """ """
+        warnings.warn(
+            f"Arguments {include_subject_details= }, {include_inactive= }, {include_details= } "
+            "are supported for interface compatibility with ecoscope.io.earthranger.EarthRangerIO, but "
+            f"the values passed to this arguments are currently ignored by {self.__class__.__name__}."
+        )
         subject_ids = self._subject_group_name_to_subject_ids(subject_group_name)
         query = ObservationsQuery(
             tenant_id=self._tenant_id,
