@@ -63,7 +63,7 @@ class ERWarehouseClient(BaseModel):
         include_subject_details: bool = True,
         include_inactive: bool = True,
         include_details: bool = True,
-    ):
+    ) -> pa.Table:
         """ """
         warnings.warn(
             f"Arguments {include_subject_details= }, {include_inactive= }, {include_details= } "
