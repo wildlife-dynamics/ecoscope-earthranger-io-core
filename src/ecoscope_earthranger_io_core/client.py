@@ -42,10 +42,10 @@ class ERWarehouseClient(BaseModel):
 
     # platform-level
     warehouse_base_url: str
-    warehouse_events_router: str | None = None
-    warehouse_observations_router: str
-    warehouse_patrol_events_router: str | None = None
-    warehouse_patrol_observations_router: str | None = None
+    warehouse_events_router: str = "/events"
+    warehouse_observations_router: str = "/observations"
+    warehouse_patrol_events_router: str = "/patrol/events"
+    warehouse_patrol_observations_router: str = "/patrol/observations"
 
     @cached_property
     def _tenant_id(self) -> str:

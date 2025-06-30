@@ -73,12 +73,11 @@ async def test_client_get_subjectgroup_observations(
             username="fast-data-enthusiast",
             token="abc",
             warehouse_base_url="http://test",
-            warehouse_observations_router="/observations",
         )
         table = await er_client.get_subjectgroup_observations(
             subject_group_name="Ecoscope",
-            since="2015-01-01T12:00:00+00:00",
-            until="2015-03-01T12:00:00+00:00",
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
         )
         assert isinstance(table, pa.Table)
         assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
