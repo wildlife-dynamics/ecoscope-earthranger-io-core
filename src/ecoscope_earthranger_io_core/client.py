@@ -82,12 +82,31 @@ class ERWarehouseClient(BaseModel):
         include_details: bool = True,
     ) -> pa.Table:
         """ """
+        subject_ids = self._subject_group_name_to_subject_ids(subject_group_name)
+        table = await self.get_subject_observations(
+            subject_ids=subject_ids,
+            since=since,
+            until=until,
+            include_subject_details=include_subject_details,
+            include_inactive=include_inactive,
+            include_details=include_details,
+        )
+        return table
+
+    async def get_subject_observations(
+        self,
+        subject_ids: list[str],
+        since: str,
+        until: str,
+        include_subject_details: bool = True,
+        include_inactive: bool = True,
+        include_details: bool = True,
+    ) -> pa.Table:
         warnings.warn(
             f"Arguments {include_subject_details= }, {include_inactive= }, {include_details= } "
             "are supported for interface compatibility with ecoscope.io.earthranger.EarthRangerIO, but "
             f"the values passed to this arguments are currently ignored by {self.__class__.__name__}."
         )
-        subject_ids = self._subject_group_name_to_subject_ids(subject_group_name)
         query = ObservationsQuery(
             tenant_id=self._tenant_id,
             range_start=datetime.fromisoformat(since),
@@ -101,5 +120,4 @@ class ERWarehouseClient(BaseModel):
                 query=query,
                 headers={"X-EarthRanger-API-Token": self._token.get_secret_value()},
             )
-
         return table
