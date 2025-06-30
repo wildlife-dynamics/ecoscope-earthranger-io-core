@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncIterable, Callable
 from unittest.mock import patch
@@ -39,7 +40,7 @@ async def test__get_table(app: FastAPI, nrecords: int) -> None:
     ) as client:
         table = await _get_table(
             client=client,
-            route="/stream/arrow",
+            route="/observations/stream/arrow",
             query=query,
             headers=None,
         )
@@ -55,26 +56,30 @@ async def test_client_get_subjectgroup_observations(
     app: FastAPI,
     nrecords: int,
 ) -> None:
-    async with AsyncClient(
-        transport=ASGITransport(app),
-        base_url="http://test",
-    ) as mock_httpx_client:
-        with patch(
-            "ecoscope_earthranger_io_core.client.ERWarehouseClient._httpx_client",
-            return_value=mock_httpx_client,
-        ):
-            er_client = ERWarehouseClient(
-                server="https://some-site.pamdas.org/",
-                username="fast-data-enthusiast",
-                token="abc",
-                _warehouse_base_url="http://test",
-                _warehouse_observations_router="/observations",
-            )
-            table = await er_client.get_subjectgroup_observations(
-                subject_group_name="Ecoscope",
-                since="2015-01-01T12:00:00+00:00",
-                until="2015-03-01T12:00:00+00:00",
-            )
-            assert isinstance(table, pa.Table)
-            assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
-            assert len(table) == nrecords
+    @asynccontextmanager
+    async def _mock_httpx_client():
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    with patch(
+        "ecoscope_earthranger_io_core.client.ERWarehouseClient._httpx_client",
+        return_value=_mock_httpx_client(),
+    ):
+        er_client = ERWarehouseClient(
+            server="https://some-site.pamdas.org/",
+            username="fast-data-enthusiast",
+            token="abc",
+            warehouse_base_url="http://test",
+            warehouse_observations_router="/observations",
+        )
+        table = await er_client.get_subjectgroup_observations(
+            subject_group_name="Ecoscope",
+            since="2015-01-01T12:00:00+00:00",
+            until="2015-03-01T12:00:00+00:00",
+        )
+        assert isinstance(table, pa.Table)
+        assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
+        assert len(table) == nrecords

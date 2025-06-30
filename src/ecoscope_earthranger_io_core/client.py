@@ -41,11 +41,11 @@ class ERWarehouseClient(BaseModel):
     token: SecretStr | None = None
 
     # platform-level
-    _warehouse_base_url: str
-    _warehouse_events_router: str | None = None
-    _warehouse_observations_router: str
-    _warehouse_patrol_events_router: str | None = None
-    _warehouse_patrol_observations_router: str | None = None
+    warehouse_base_url: str
+    warehouse_events_router: str | None = None
+    warehouse_observations_router: str
+    warehouse_patrol_events_router: str | None = None
+    warehouse_patrol_observations_router: str | None = None
 
     @cached_property
     def _tenant_id(self) -> str:
@@ -69,7 +69,7 @@ class ERWarehouseClient(BaseModel):
 
     @asynccontextmanager
     async def _httpx_client(self):
-        async with httpx.AsyncClient(base_url=self._warehouse_base_url) as client:
+        async with httpx.AsyncClient(base_url=self.warehouse_base_url) as client:
             yield client
 
     async def get_subjectgroup_observations(
@@ -97,7 +97,7 @@ class ERWarehouseClient(BaseModel):
         async with self._httpx_client() as client:
             table = await _get_table(
                 client=client,
-                route=f"{self._warehouse_observations_router}/stream/arrow",
+                route=f"{self.warehouse_observations_router}/stream/arrow",
                 query=query,
                 headers={"X-EarthRanger-API-Token": self._token.get_secret_value()},
             )

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import APIRouter, FastAPI, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from ecoscope_earthranger_io_core.arrow import TRANSFORMS, SchemaChoices
@@ -7,9 +7,10 @@ from ecoscope_earthranger_io_core.query import ObservationsQuery
 from conftest import get_async_rb_generator_from_storage_backend
 
 app = FastAPI()
+observations = APIRouter(prefix="/observations")
 
 
-@app.get("/stream/arrow")
+@observations.get("/stream/arrow")
 async def get_observations_streaming_arrow(
     query: ObservationsQuery = Depends(ObservationsQuery.from_query_params),
     schema: SchemaChoices = Query(
@@ -34,3 +35,6 @@ async def get_observations_streaming_arrow(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
+
+
+app.include_router(observations)
