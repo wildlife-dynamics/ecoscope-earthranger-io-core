@@ -1,5 +1,6 @@
 import io
 import warnings
+from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
 
@@ -66,6 +67,11 @@ class ERWarehouseClient(BaseModel):
         # TODO: use self.server + self.username to compute visibility
         return ["subject1", "subject2"]  # FIXME
 
+    @asynccontextmanager
+    async def _httpx_client(self):
+        async with httpx.AsyncClient(base_url=self._warehouse_base_url) as client:
+            yield client
+
     async def get_subjectgroup_observations(
         self,
         subject_group_name: str,
@@ -88,8 +94,7 @@ class ERWarehouseClient(BaseModel):
             range_end=datetime.fromisoformat(until),
             subject_ids=subject_ids,
         )
-        # TODO: how do we cache a per-instance client, while still using a context manager?
-        async with httpx.AsyncClient(base_url=self._warehouse_base_url) as client:
+        async with self._httpx_client() as client:
             table = await _get_table(
                 client=client,
                 route=f"{self._warehouse_observations_router}/stream/arrow",
