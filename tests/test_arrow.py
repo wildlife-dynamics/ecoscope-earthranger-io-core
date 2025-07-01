@@ -12,10 +12,6 @@ from ecoscope_earthranger_io_core.query import ObservationsQuery
 from conftest import get_async_rb_generator_from_storage_backend
 
 
-def test_observations(mock_observations_record_batch: pa.RecordBatch):
-    assert len(mock_observations_record_batch) > 0
-
-
 @pytest.mark.asyncio
 async def test_generate_bytes():
     transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]

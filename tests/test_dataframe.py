@@ -16,6 +16,9 @@ from shapely.geometry import Point
 
 from ecoscope_earthranger_io_core.arrow import TRANSFORMS, SchemaChoices
 from ecoscope_earthranger_io_core.dataframe import ObservationsGDFSchema
+from ecoscope_earthranger_io_core.query import ObservationsQuery
+
+from conftest import create_mock_observations_record_batch
 
 
 def test_observations_gdf_schema():
@@ -49,10 +52,20 @@ def test_observations_gdf_schema_missing_column_raises():
         ObservationsGDFSchema.validate(gdf)
 
 
-@pytest.mark.xfail(reason="Need to circle back to fix this")
-def test_observations_from_arrow(mock_observations_record_batch: pyarrow.RecordBatch):
+def test_observations_from_arrow():
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1", "subject2"],
+        range_start=dt.datetime(2023, 1, 1),
+        range_end=dt.datetime(2023, 12, 31),
+    )
     transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
-    as_ecoscope_rb = transform.transform(mock_observations_record_batch)
+    rb = create_mock_observations_record_batch(
+        query=query,
+        columns=transform.required_columns,
+        schema=transform.pre_transform_schema,
+    )
+    as_ecoscope_rb = transform.transform(rb)
     table = pyarrow.Table.from_batches([as_ecoscope_rb])
     obs = gpd.GeoDataFrame.from_arrow(table)
     assert len(obs) > 0
