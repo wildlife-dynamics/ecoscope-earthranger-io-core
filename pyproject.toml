@@ -1,0 +1,127 @@
+[project.urls]
+Homepage = "https://github.com/wildlife-dynamics/ecoscope-earthranger-io-core"
+Tracker = "https://github.com/wildlife-dynamics/ecoscope-earthranger-io-core/issues"
+
+[project]
+name = "ecoscope-earthranger-io-core"
+dynamic = ["version"]
+readme = "README.md"
+description = "Core models for Ecoscope interface with EarthRanger."
+authors = [
+    { name = "Charles Stern", email = "charless@earthranger.com" },
+]
+
+# dependencies for pip and pixi, grouped visually
+# for clarity, some inevitable duplication here
+
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "pydantic >=2.0.0,<3",
+    "pyarrow >=20.0.0,<21",
+    "geoarrow-pyarrow >=0.2.0,<0.3",
+    # note that pip distributions deliberately exclude
+    # geopandas and pandera, as they are not necessary
+    # and geopandas in particular is a heavy dependency
+    # only needed for the client side
+]
+[project.optional-dependencies]
+test = [
+    "fastapi",
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[tool.pixi.dependencies]
+python = ">=3.10,<3.13"
+pydantic = ">=2.0.0,<3"
+pyarrow = ">=20.0.0,<21"
+geoarrow-pyarrow = ">=0.2.0,<0.3"
+geopandas = ">=1.1.0,<2"
+pandera = ">=0.24.0,<0.25"
+
+[tool.pixi.feature.test.dependencies]
+fastapi = "*"
+pytest = ">=8.3.5,<9"
+pytest-asyncio = "*"
+httpx = "*"
+mypy = "*"
+pandas-stubs = "*"
+pandera-mypy = "*"
+
+# additional pixi workspace, environment, feature etc. declarations
+
+[tool.pixi.workspace]
+preview = ["pixi-build"]
+platforms = ["linux-64", "osx-arm64"]
+channels = [
+    "https://repo.prefix.dev/ecoscope-workflows/",
+    "https://prefix.dev/conda-forge",
+    "https://prefix.dev/pixi-build-backends",
+]
+
+[tool.pixi.feature.py310]
+dependencies = { python = "3.10.*" }
+[tool.pixi.feature.py311]
+dependencies = { python = "3.11.*" }
+[tool.pixi.feature.py312]
+dependencies = { python = "3.12.*" }
+
+[tool.pixi.feature.test.pypi-dependencies]
+"ecoscope-earthranger-io-core" = { path = ".", editable = true }
+pyarrow-stubs = "*"  # recommended in https://github.com/apache/arrow/issues/32609
+types-geopandas = "*"  # https://github.com/geopandas/geopandas/issues/3091
+types-shapely = "*"
+
+[tool.pixi.feature.test.tasks]
+test-310 = { cmd = "./dev/pytest.sh 310"}
+test-311 = { cmd = "./dev/pytest.sh 311"}
+test-312 = { cmd = "./dev/pytest.sh 312"}
+test-all = { cmd = "echo 'test-all' complete", depends-on = [
+    "test-310",
+    "test-311",
+    "test-312",
+]}
+mypy-310 = { cmd = "./dev/mypy.sh 310"}
+mypy-311 = { cmd = "./dev/mypy.sh 311"}
+mypy-312 = { cmd = "./dev/mypy.sh 312"}
+mypy-all = { cmd = "echo 'mypy-all' complete", depends-on = [
+    "mypy-310",
+    "mypy-311",
+    "mypy-312",
+]}
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+test-310 = { features = ["test", "py310"], solve-group = "py310" }
+test-311 = { features = ["test", "py311"], solve-group = "py311" }
+test-312 = { features = ["test", "py312"], solve-group = "py312" }
+
+# build configuration; for pip ...
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+[tool.hatch.build.hooks.vcs]
+version-file = "src/ecoscope_earthranger_io_core/_version.py"
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "9999"
+
+# ... and for pixi
+
+[tool.pixi.package]
+name = "ecoscope-earthranger-io-core"
+version = "9999"  # placeholder to be overridden by rattler build backend
+
+[tool.pixi.package.build]
+backend = { name = "pixi-build-python", version = "0.1.*" }
+
+[tool.pixi.package.host-dependencies]
+python = ">=3.10,<=3.12"
+hatchling = "==1.26.3"
+
+# other tools
+
+[tool.mypy]
+plugins = ["pandera.mypy", "pydantic.mypy"]
