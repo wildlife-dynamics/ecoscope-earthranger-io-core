@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from io import BytesIO
-from typing import AsyncIterable, Callable
+from typing import AsyncIterable, Callable, cast
 
 import geoarrow.pyarrow  # type: ignore[import-untyped]
 import pyarrow as pa
@@ -55,8 +55,8 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
     # NOTE: workaround for missing +00:00 timezone offset in EarthRanger data, can be removed
     # once EarthRanger data is fixed to include timezone offsets.
     fixtime_idx = renamed.schema.get_field_index("fixtime")
-    fixtime_naive = renamed.column("fixtime")
-    fixtime_utc = [t + "+00:00" for t in fixtime_naive.to_pylist()]
+    fixtime_naive = cast(list[str], renamed.column("fixtime").to_pylist())
+    fixtime_utc = [t + "+00:00" for t in fixtime_naive]
     return renamed.drop_columns("fixtime").add_column(
         fixtime_idx, "fixtime", fixtime_utc
     )

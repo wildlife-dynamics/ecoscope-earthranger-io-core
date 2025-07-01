@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import AsyncIterable, Generator
+from typing import AsyncIterable, Callable, Generator
 
 import pyarrow
 import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
@@ -79,9 +79,9 @@ def create_mock_observations_record_batch(
 
 def get_async_rb_generator_from_storage_backend(
     query: ObservationsQuery,
-    columns: list[str],
+    columns: list[str] | None,
     schema: pyarrow.Schema,
-) -> AsyncIterable[pyarrow.RecordBatch]:
+) -> Callable[[], AsyncIterable[pyarrow.RecordBatch]]:
     async def _async_generator() -> AsyncIterable[pyarrow.RecordBatch]:
         for _ in range(1):  # Simulate a single batch for testing
             yield create_mock_observations_record_batch(

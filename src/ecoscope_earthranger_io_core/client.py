@@ -55,7 +55,9 @@ class ERWarehouseClient(BaseModel):
     @cached_property
     def _token(self) -> SecretStr:
         if not self.token:
-            self._login()
+            raise NotImplementedError(
+                "Login not yet implemented, please pass `token` to constructor."
+            )
         return self.token
 
     def _subject_group_name_to_subject_ids(self, subject_group_name: str) -> list[str]:
