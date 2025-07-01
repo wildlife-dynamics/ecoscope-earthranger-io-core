@@ -24,7 +24,7 @@ def _split_datetime_range_by_delta(
 
 
 def _mock_observations_generator(
-    tenant_id: str,
+    tenant_domain: str,
     subject_ids: list[str],
     range_start: datetime,
     range_end: datetime,
@@ -35,6 +35,7 @@ def _mock_observations_generator(
         range_end=range_end,
         delta=timedelta(minutes=5.0),
     ):
+        mock_das_tenant_id = str(uuid.uuid4())
         for subject_id in subject_ids:
             manufacturer_id = str(uuid.uuid4())
             source_id = str(uuid.uuid4())
@@ -49,7 +50,7 @@ def _mock_observations_generator(
                 "subject_id": subject_id,
                 "subject_name": "mock-subject-name",
                 "subject_subtype_id": "mock-subject-subtype",
-                "das_tenant_id": tenant_id,
+                "das_tenant_id": mock_das_tenant_id,
                 "domain": "https://mock-site.padas.org",
                 "observation_id": str(uuid.uuid4()),
                 "source_id": source_id,
@@ -102,7 +103,7 @@ def nrecords() -> int:
 def mock_observations_record_batch(nrecords: int) -> pyarrow.RecordBatch:
     """Fixture that provides a mock record batch of observations."""
     query = ObservationsQuery(
-        tenant_id="tenant123",
+        tenant_domain="some-site.pamdas.org",
         subject_ids=["subject1", "subject2"],
         range_start=datetime(2023, 1, 1),
         range_end=datetime(2023, 12, 31),

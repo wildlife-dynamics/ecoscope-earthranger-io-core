@@ -47,11 +47,6 @@ class ERWarehouseClient(BaseModel):
     warehouse_patrol_events_router: str = "/patrol/events"
     warehouse_patrol_observations_router: str = "/patrol/observations"
 
-    @cached_property
-    def _tenant_id(self) -> str:
-        # TODO: use self.server to compute
-        return "123"  # FIXME
-
     def _login(self) -> None:
         raise NotImplementedError(
             "Login not yet implemented, please pass `token` to constructor."
@@ -108,7 +103,7 @@ class ERWarehouseClient(BaseModel):
             f"the values passed to this arguments are currently ignored by {self.__class__.__name__}."
         )
         query = ObservationsQuery(
-            tenant_id=self._tenant_id,
+            tenant_domain=self.server,
             range_start=datetime.fromisoformat(since),
             range_end=datetime.fromisoformat(until),
             subject_ids=subject_ids,

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 class _WarehouseQuery(BaseModel):
-    tenant_id: str
+    tenant_domain: str
     range_start: datetime
     range_end: datetime
 
@@ -19,7 +19,7 @@ class ObservationsQuery(_WarehouseQuery):
     ```python
     >>> from ecoscope_earthranger_io_core.query import ObservationsQuery
     >>> query = ObservationsQuery(
-    ...     tenant_id="tenant123",
+    ...     tenant_domain="some-site.pamdas.org",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
     ...     subject_ids=["subject1", "subject2"],
@@ -33,13 +33,13 @@ class ObservationsQuery(_WarehouseQuery):
     @classmethod
     def from_query_params(
         cls,
-        tenant_id: str = Query(...),
+        tenant_domain: str = Query(...),
         range_start: datetime = Query(...),
         range_end: datetime = Query(...),
         subject_ids: list[str] = Query(...),
     ) -> "ObservationsQuery":
         return cls(
-            tenant_id=tenant_id,
+            tenant_domain=tenant_domain,
             range_start=range_start,
             range_end=range_end,
             subject_ids=subject_ids,
@@ -54,7 +54,7 @@ class EventsQuery(_WarehouseQuery):
     ```python
     >>> from ecoscope_earthranger_io_core.query import EventsQuery
     >>> query = EventsQuery(
-    ...     tenant_id="tenant123",
+    ...     tenant_domain="some-site.pamdas.org",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
     ...     event_ids=["subject1", "subject2"],
@@ -82,7 +82,7 @@ class PatrolObservationsQuery(_PatrolsQuery):
     ```python
     >>> from ecoscope_earthranger_io_core.query import PatrolObservationsQuery
     >>> query = PatrolObservationsQuery(
-    ...     tenant_id="tenant123",
+    ...     tenant_domain="some-site.pamdas.org",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
     ...     patrol_ids=["patrol1", "patrol2"],
@@ -103,7 +103,7 @@ class PatrolEventsQuery(_PatrolsQuery):
     ```python
     >>> from ecoscope_earthranger_io_core.query import PatrolObservationsQuery
     >>> query = PatrolObservationsQuery(
-    ...     tenant_id="tenant123",
+    ...     tenant_domain="some-site.pamdas.org",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
     ...     patrol_ids=["patrol1", "patrol2"],

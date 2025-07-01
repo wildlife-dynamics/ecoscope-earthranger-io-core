@@ -29,7 +29,7 @@ def app():
 @pytest.mark.asyncio
 async def test__get_table(app: FastAPI, nrecords: int) -> None:
     query = ObservationsQuery(
-        tenant_id="tenant123",
+        tenant_domain="some-site.pamdas.org",
         subject_ids=["subject1", "subject2"],
         range_start=datetime(2023, 1, 1),
         range_end=datetime(2023, 12, 31),

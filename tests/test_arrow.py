@@ -20,7 +20,7 @@ def test_observations(mock_observations_record_batch: pa.RecordBatch):
 async def test_generate_bytes():
     transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
     query = ObservationsQuery(
-        tenant_id="tenant123",
+        tenant_domain="some-site.pamdas.org",
         subject_ids=["subject1", "subject2"],
         range_start=datetime(2023, 1, 1),
         range_end=datetime(2023, 12, 31),
