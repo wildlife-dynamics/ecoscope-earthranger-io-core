@@ -13,7 +13,7 @@ OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
     [
         ("created_at", pa.string()),
         ("exclusion_flags", pa.string()),
-        ("is_active", pa.bool_()),
+        ("is_active", pa.string()),
         ("location", geoarrow.pyarrow.wkb()),
         ("manufacturer_id", pa.string()),
         ("recorded_at", pa.string()),
