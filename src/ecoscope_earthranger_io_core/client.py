@@ -1,9 +1,11 @@
+import asyncio
 import io
-import warnings
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
+from typing import Any
 
+import geopandas as gpd
 import httpx
 import pyarrow as pa
 from pydantic import BaseModel, SecretStr
@@ -16,14 +18,23 @@ async def _get_table(
     route: str,
     query: ObservationsQuery,
     headers: dict[str, str] | None = None,
-):
+) -> pa.Table:
+    """Fetch Arrow IPC stream from the warehouse API and return as a PyArrow Table.
+
+    Args:
+        client: The httpx async client.
+        route: The API route to call.
+        query: The ObservationsQuery specifying what data to fetch.
+        headers: Optional headers to include.
+    """
     async with client.stream(
         "GET",
         route,
-        params=query.model_dump(),
+        params=query.model_dump(exclude_none=True),
         headers=headers,
-        timeout=60,
+        timeout=600,
     ) as response:
+        response.raise_for_status()
         sink = io.BytesIO()
         async for chunk in response.aiter_bytes():
             sink.write(chunk)
@@ -33,19 +44,38 @@ async def _get_table(
     return table
 
 
+def _table_to_geodataframe(table: pa.Table) -> gpd.GeoDataFrame:
+    """Convert a PyArrow Table to a GeoDataFrame."""
+    return gpd.GeoDataFrame.from_arrow(table)
+
+
 class ERWarehouseClient(BaseModel):
+    """EarthRanger Warehouse Client.
+
+    A client for fetching observations data from the EarthRanger Data Warehouse API.
+    Implements the EarthRangerClientProtocol interface for use as a drop-in replacement
+    for ecoscope.io.EarthRangerIO in ecoscope-workflows.
+
+    Example:
+        >>> from pydantic import SecretStr
+        >>> client = ERWarehouseClient(
+        ...     server="my-site.pamdas.org",
+        ...     token=SecretStr("my-token"),
+        ...     warehouse_base_url="https://warehouse.example.com",
+        ... )
+        >>> client.server
+        'my-site.pamdas.org'
+    """
+
     # user-facing
-    server: str
-    username: str
+    server: str  # tenant domain, e.g., "my-site.pamdas.org"
+    username: str = ""
     password: SecretStr | None = None
     token: SecretStr | None = None
 
     # platform-level
     warehouse_base_url: str
-    warehouse_events_router: str = "/events"
     warehouse_observations_router: str = "/observations"
-    warehouse_patrol_events_router: str = "/patrol/events"
-    warehouse_patrol_observations_router: str = "/patrol/observations"
 
     def _login(self) -> None:
         raise NotImplementedError(
@@ -60,61 +90,205 @@ class ERWarehouseClient(BaseModel):
             )
         return self.token
 
-    def _subject_group_name_to_subject_ids(self, subject_group_name: str) -> list[str]:
-        # TODO: use self.server + self.username to compute visibility
-        return ["subject1", "subject2"]  # FIXME
-
     @asynccontextmanager
     async def _httpx_client(self):
         async with httpx.AsyncClient(base_url=self.warehouse_base_url) as client:
             yield client
 
-    async def get_subjectgroup_observations(
-        self,
-        subject_group_name: str,
-        since: str,
-        until: str,
-        include_subject_details: bool = True,
-        include_inactive: bool = True,
-        include_details: bool = True,
-    ) -> pa.Table:
-        """ """
-        subject_ids = self._subject_group_name_to_subject_ids(subject_group_name)
-        table = await self.get_subject_observations(
-            subject_ids=subject_ids,
-            since=since,
-            until=until,
-            include_subject_details=include_subject_details,
-            include_inactive=include_inactive,
-            include_details=include_details,
-        )
-        return table
+    def _get_auth_headers(self) -> dict[str, str]:
+        """Return authentication headers for API requests."""
+        return {"X-EarthRanger-API-Token": self._token.get_secret_value()}
 
-    async def get_subject_observations(
+    async def _fetch_observations_arrow(
         self,
-        subject_ids: list[str],
-        since: str,
-        until: str,
-        include_subject_details: bool = True,
-        include_inactive: bool = True,
-        include_details: bool = True,
+        query: ObservationsQuery,
     ) -> pa.Table:
-        warnings.warn(
-            f"Arguments {include_subject_details= }, {include_inactive= }, {include_details= } "
-            "are supported for interface compatibility with ecoscope.io.earthranger.EarthRangerIO, but "
-            f"the values passed to this arguments are currently ignored by {self.__class__.__name__}."
-        )
-        query = ObservationsQuery(
-            tenant_domain=self.server,
-            range_start=datetime.fromisoformat(since),
-            range_end=datetime.fromisoformat(until),
-            subject_ids=subject_ids,
-        )
+        """Internal async method to fetch observations as Arrow table."""
         async with self._httpx_client() as client:
             table = await _get_table(
                 client=client,
                 route=f"{self.warehouse_observations_router}/stream/arrow",
                 query=query,
-                headers={"X-EarthRanger-API-Token": self._token.get_secret_value()},
+                headers=self._get_auth_headers(),
             )
         return table
+
+    def _run_async(self, coro):
+        """Run an async coroutine synchronously.
+
+        Handles the case where we're already inside an event loop (e.g., in tests)
+        by using the existing loop instead of creating a new one.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, use asyncio.run()
+            return asyncio.run(coro)
+
+        # Already in a running loop - create a new thread to run the coroutine
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
+
+    # -------------------------------------------------------------------------
+    # EarthRangerClientProtocol implementation - Observations
+    # -------------------------------------------------------------------------
+
+    def get_subjectgroup_observations(
+        self,
+        subject_group_name: str,
+        include_subject_details: bool = True,
+        include_inactive: bool = True,
+        include_details: bool = True,
+        include_subjectsource_details: bool = False,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> gpd.GeoDataFrame:
+        """Get observations for a subject group from EarthRanger Data Warehouse.
+
+        Args:
+            subject_group_name: Name of the subject group to fetch observations for.
+            include_subject_details: Ignored (for interface compatibility).
+            include_inactive: Ignored (for interface compatibility).
+            include_details: Ignored (for interface compatibility).
+            include_subjectsource_details: Ignored (for interface compatibility).
+            since: Start of time range (ISO 8601 format).
+            until: End of time range (ISO 8601 format).
+
+        Returns:
+            GeoDataFrame with observations data.
+        """
+        if since is None or until is None:
+            raise ValueError("Both 'since' and 'until' must be provided")
+
+        query = ObservationsQuery(
+            tenant_domain=self.server,
+            range_start=datetime.fromisoformat(since),
+            range_end=datetime.fromisoformat(until),
+            subject_group_name=subject_group_name,
+        )
+        table = self._run_async(self._fetch_observations_arrow(query))
+        return _table_to_geodataframe(table)
+
+    def get_patrol_observations_with_patrol_filter(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        patrol_type_value: list[str] | None = None,
+        status: list[str] | None = None,
+        include_patrol_details: bool = True,
+        sub_page_size: int | None = None,
+    ) -> gpd.GeoDataFrame:
+        """Get patrol observations filtered by patrol type and status.
+
+        Args:
+            since: Start of time range (ISO 8601 format).
+            until: End of time range (ISO 8601 format).
+            patrol_type_value: List of patrol type values to filter by.
+            status: List of patrol statuses to filter by (e.g., ["done"]).
+            include_patrol_details: Whether to include patrol metadata.
+            sub_page_size: Ignored (for interface compatibility).
+
+        Returns:
+            GeoDataFrame with patrol observations data including patrol metadata.
+        """
+        if since is None or until is None:
+            raise ValueError("Both 'since' and 'until' must be provided")
+
+        query = ObservationsQuery(
+            tenant_domain=self.server,
+            range_start=datetime.fromisoformat(since),
+            range_end=datetime.fromisoformat(until),
+            patrol_type_value=patrol_type_value,
+            patrol_status=status,  # type: ignore[arg-type]
+            include_patrol_details=include_patrol_details,
+        )
+        table = self._run_async(self._fetch_observations_arrow(query))
+        return _table_to_geodataframe(table)
+
+    # -------------------------------------------------------------------------
+    # EarthRangerClientProtocol implementation - Not Implemented
+    # -------------------------------------------------------------------------
+
+    def get_patrol_events(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        patrol_type_value: list[str] | None = None,
+        event_type: list[str] | None = None,
+        status: list[str] | None = None,
+        drop_null_geometry: bool = False,
+        sub_page_size: int | None = None,
+    ) -> gpd.GeoDataFrame:
+        """Not implemented - events not yet supported by the Data Warehouse."""
+        raise NotImplementedError(
+            "get_patrol_events is not yet implemented in ERWarehouseClient. "
+            "Events are not currently supported by the Data Warehouse API."
+        )
+
+    def get_events(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        event_type: list[str] | None = None,
+        drop_null_geometry: bool = False,
+        include_details: bool = False,
+        include_updates: bool = False,
+        include_related_events: bool = False,
+    ) -> gpd.GeoDataFrame:
+        """Not implemented - events not yet supported by the Data Warehouse."""
+        raise NotImplementedError(
+            "get_events is not yet implemented in ERWarehouseClient. "
+            "Events are not currently supported by the Data Warehouse API."
+        )
+
+    def get_event_types(self) -> Any:
+        """Not implemented - events not yet supported by the Data Warehouse."""
+        raise NotImplementedError(
+            "get_event_types is not yet implemented in ERWarehouseClient. "
+            "Events are not currently supported by the Data Warehouse API."
+        )
+
+    def get_patrols(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        patrol_type_value: list[str] | None = None,
+        status: list[str] | None = None,
+        sub_page_size: int | None = None,
+    ) -> Any:
+        """Not implemented - patrols endpoint not yet available in the Data Warehouse."""
+        raise NotImplementedError(
+            "get_patrols is not yet implemented in ERWarehouseClient. "
+            "Use get_patrol_observations_with_patrol_filter instead."
+        )
+
+    def get_patrol_observations(
+        self,
+        patrols_df: Any,
+        include_patrol_details: bool = True,
+        sub_page_size: int | None = None,
+    ) -> gpd.GeoDataFrame:
+        """Not implemented - querying by patrol IDs not yet supported.
+
+        Use get_patrol_observations_with_patrol_filter() instead to query
+        patrol observations by patrol type and status.
+        """
+        raise NotImplementedError(
+            "get_patrol_observations is not yet implemented in ERWarehouseClient. "
+            "The Data Warehouse API does not currently support querying by patrol IDs. "
+            "Use get_patrol_observations_with_patrol_filter() instead."
+        )
+
+    def get_event_type_display_names_from_events(
+        self,
+        events_gdf: Any,
+        append_category_names: str = "duplicates",
+    ) -> Any:
+        """Not implemented - events not yet supported by the Data Warehouse."""
+        raise NotImplementedError(
+            "get_event_type_display_names_from_events is not yet implemented in ERWarehouseClient. "
+            "Events are not currently supported by the Data Warehouse API."
+        )
