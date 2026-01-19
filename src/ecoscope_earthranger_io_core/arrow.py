@@ -37,6 +37,28 @@ OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
     ]
 )
 
+OBSERVATIONS_WITH_PATROL_SCHEMA__SLIM_V1 = pa.schema(
+    [
+        ("geometry", geoarrow.wkb()),
+        ("fixtime", pa.timestamp("ns", tz="UTC")),
+        ("groupby_col", pa.string()),
+        ("extra__subject__name", pa.string()),
+        ("extra__subject__subject_subtype", pa.string()),
+        ("junk_status", pa.bool_()),
+        ("patrol_id", pa.string()),
+        ("patrol_title", pa.string()),
+        ("patrol_serial_number", pa.int64()),
+        ("patrol_status", pa.string()),
+        ("patrol_type__value", pa.string()),  # Double underscore to match EarthRangerIO
+        (
+            "patrol_type__display",
+            pa.string(),
+        ),  # Double underscore to match EarthRangerIO
+        ("patrol_start_time", pa.string()),
+        ("patrol_end_time", pa.string()),
+    ]
+)
+
 
 def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
     """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
