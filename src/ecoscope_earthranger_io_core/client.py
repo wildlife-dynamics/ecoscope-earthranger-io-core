@@ -59,12 +59,21 @@ class ERWarehouseClient(BaseModel):
     Example:
         >>> from pydantic import SecretStr
         >>> client = ERWarehouseClient(
-        ...     server="my-site.pamdas.org",
-        ...     token=SecretStr("my-token"),
-        ...     warehouse_base_url="https://warehouse.example.com",
+        ...     server="mep-dev.pamdas.org",
+        ...     token=SecretStr("your-api-token"),
+        ...     warehouse_base_url="https://warehouse.pamdas.org",
         ... )
-        >>> client.get_subjectgroup_observations(...)
-        >>> client.get_patrol_observations_with_patrol_filter(...)
+        >>> gdf = client.get_subjectgroup_observations(  # doctest: +SKIP
+        ...     subject_group_name="Elephants",
+        ...     since="2024-01-01T00:00:00Z",
+        ...     until="2024-01-31T23:59:59Z",
+        ... )
+        >>> gdf = client.get_patrol_observations_with_patrol_filter(  # doctest: +SKIP
+        ...     since="2024-01-01T00:00:00Z",
+        ...     until="2024-01-31T23:59:59Z",
+        ...     patrol_type_value=["routine_patrol"],
+        ...     status=["done"],
+        ... )
     """
 
     # user-facing
