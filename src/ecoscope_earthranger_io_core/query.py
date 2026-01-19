@@ -30,7 +30,7 @@ class ObservationsQuery(_WarehouseQuery):
     >>>
     ```
 
-    Or with subject group name and patrol filters:
+    Or with patrol filters:
 
     ```python
     >>> query = ObservationsQuery(
