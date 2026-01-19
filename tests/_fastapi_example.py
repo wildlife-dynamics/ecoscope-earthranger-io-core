@@ -62,7 +62,7 @@ def _patrol_observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBa
     # Add timezone to fixtime (workaround for missing +00:00 in EarthRanger data)
     fixtime_idx = renamed.schema.get_field_index("fixtime")
     fixtime_naive = renamed.column("fixtime").to_pylist()
-    fixtime_utc = [t + "+00:00" for t in fixtime_naive]
+    fixtime_utc = [t + "+00:00" if t else None for t in fixtime_naive]
 
     # Replace fixtime column
     result = renamed.drop_columns(["fixtime"])
