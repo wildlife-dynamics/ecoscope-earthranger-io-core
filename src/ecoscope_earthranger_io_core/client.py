@@ -54,7 +54,7 @@ class ERWarehouseClient(BaseModel):
 
     A client for fetching observations data from the EarthRanger Data Warehouse API.
     Implements the EarthRangerClientProtocol interface for use as a drop-in replacement
-    for ecoscope.io.EarthRangerIO in ecoscope-workflows.
+    for EarthRangerIO / EarthRangerClient in ecoscope-workflows.
 
     Example:
         >>> from pydantic import SecretStr
@@ -63,19 +63,19 @@ class ERWarehouseClient(BaseModel):
         ...     token=SecretStr("my-token"),
         ...     warehouse_base_url="https://warehouse.example.com",
         ... )
-        >>> client.server
-        'my-site.pamdas.org'
+        >>> client.get_subjectgroup_observations(...)
+        >>> client.get_patrol_observations_with_patrol_filter(...)
     """
 
     # user-facing
-    server: str  # tenant domain, e.g., "my-site.pamdas.org"
+    server: str  # tenant domain, e.g., "mep-dev.pamdas.org"
     username: str = ""
     password: SecretStr | None = None
     token: SecretStr | None = None
 
     # platform-level
     warehouse_base_url: str
-    warehouse_observations_router: str = "/observations"
+    warehouse_observations_endpoint: str = "/observations"
 
     def _login(self) -> None:
         raise NotImplementedError(
@@ -107,7 +107,7 @@ class ERWarehouseClient(BaseModel):
         async with self._httpx_client() as client:
             table = await _get_table(
                 client=client,
-                route=f"{self.warehouse_observations_router}/stream/arrow",
+                route=f"{self.warehouse_observations_endpoint}/stream/arrow",
                 query=query,
                 headers=self._get_auth_headers(),
             )
@@ -120,7 +120,7 @@ class ERWarehouseClient(BaseModel):
         by using the existing loop instead of creating a new one.
         """
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             # No running loop, use asyncio.run()
             return asyncio.run(coro)
