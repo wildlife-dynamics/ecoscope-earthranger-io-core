@@ -39,7 +39,7 @@ OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
 
 OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1 = pa.schema(
     [
-        ("geometry", geoarrow.wkb()),
+        ("geometry", geoarrow.pyarrow.wkb()),
         ("fixtime", pa.timestamp("ns", tz="UTC")),
         ("groupby_col", pa.string()),
         ("extra__subject__name", pa.string()),

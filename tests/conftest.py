@@ -1,13 +1,13 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import AsyncIterable, Callable, Generator
+from typing import Any, AsyncIterable, Callable, Generator
 
-import pyarrow
 import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
+import pyarrow
 import pytest
 
-from ecoscope_earthranger_io_core.query import ObservationsQuery
 from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1
+from ecoscope_earthranger_io_core.query import ObservationsQuery
 
 
 def _split_datetime_range_by_delta(
@@ -25,11 +25,32 @@ def _split_datetime_range_by_delta(
 
 def _mock_observations_generator(
     tenant_domain: str,
-    subject_ids: list[str],
     range_start: datetime,
     range_end: datetime,
+    subject_ids: list[str] | None = None,
     columns: list[str] | None = None,
+    include_patrol_details: bool = False,
+    **kwargs,  # Accept and ignore additional kwargs like subject_group_name, patrol_type_value, etc.
 ) -> Generator:
+    """Generate mock observation records.
+
+    Args:
+        tenant_domain: The tenant domain
+        range_start: Start of time range
+        range_end: End of time range
+        subject_ids: List of subject IDs to generate data for
+        columns: Optional list of columns to include in output
+        include_patrol_details: If True, include patrol-related fields in output
+        **kwargs: Additional kwargs (ignored) for compatibility with ObservationsQuery fields
+    """
+    # Default subject_ids for testing if not provided
+    if subject_ids is None:
+        subject_ids = ["subject1", "subject2"]
+
+    # Mock patrol data for testing
+    mock_patrol_id = str(uuid.uuid4())
+    mock_patrol_serial = 12345
+
     for dt in _split_datetime_range_by_delta(
         range_start=range_start,
         range_end=range_end,
@@ -40,7 +61,9 @@ def _mock_observations_generator(
             manufacturer_id = str(uuid.uuid4())
             source_id = str(uuid.uuid4())
             location: bytes = ga.as_wkb(["POINT (0 1)"])[0].wkb
-            record = {
+
+            # Base record with standard observation fields
+            record: dict[str, Any] = {
                 "created_at": dt.isoformat(),
                 "exclusion_flags": "mock-exclusion-flags",
                 "is_active": True,
@@ -55,6 +78,22 @@ def _mock_observations_generator(
                 "observation_id": str(uuid.uuid4()),
                 "source_id": source_id,
             }
+
+            # Add patrol fields if requested
+            if include_patrol_details:
+                record.update(
+                    {
+                        "patrol_id": mock_patrol_id,
+                        "patrol_title": "Mock Patrol Title",
+                        "patrol_serial_number": mock_patrol_serial,
+                        "patrol_status": "done",
+                        "patrol_type_value": "routine_patrol",
+                        "patrol_type_display": "Routine Patrol",
+                        "patrol_start_time": range_start.isoformat(),
+                        "patrol_end_time": range_end.isoformat(),
+                    }
+                )
+
             if columns is None or not columns:
                 yield record
             else:
@@ -67,6 +106,14 @@ def create_mock_observations_record_batch(
     schema: pyarrow.Schema = OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1,
     nrecords: int = 1000,
 ) -> pyarrow.RecordBatch:
+    """Create a mock RecordBatch from an ObservationsQuery.
+
+    Args:
+        query: The observations query with filter parameters
+        columns: Optional list of columns to include
+        schema: The PyArrow schema for the output RecordBatch
+        nrecords: Maximum number of records to generate
+    """
     pylist = []
     for item in _mock_observations_generator(**query.model_dump(), columns=columns):
         pylist.append(item)
@@ -78,10 +125,20 @@ def create_mock_observations_record_batch(
 
 
 def get_async_rb_generator_from_storage_backend(
-    query: ObservationsQuery,
+    query: ObservationsQuery | Any,
     columns: list[str] | None,
     schema: pyarrow.Schema,
 ) -> Callable[[], AsyncIterable[pyarrow.RecordBatch]]:
+    """Create an async generator function that yields mock RecordBatches.
+
+    This simulates reading from a storage backend like Iceberg or DuckDB.
+
+    Args:
+        query: The observations query with filter parameters
+        columns: Optional list of columns to include
+        schema: The PyArrow schema for the output RecordBatches
+    """
+
     async def _async_generator() -> AsyncIterable[pyarrow.RecordBatch]:
         for _ in range(1):  # Simulate a single batch for testing
             yield create_mock_observations_record_batch(
