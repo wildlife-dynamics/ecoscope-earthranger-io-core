@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import AsyncIterable, Callable
 from unittest.mock import patch
 
-import geopandas as gpd
 import pyarrow as pa
 import pytest
 from fastapi import FastAPI
@@ -79,7 +78,7 @@ def test_client_get_subjectgroup_observations(
     app: FastAPI,
     nrecords: int,
 ) -> None:
-    """Test the sync get_subjectgroup_observations method returns GeoDataFrame."""
+    """Test the sync get_subjectgroup_observations method returns PyArrow Table."""
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -100,24 +99,24 @@ def test_client_get_subjectgroup_observations(
             token="abc",
             warehouse_base_url="http://test",
         )
-        gdf = er_client.get_subjectgroup_observations(
+        table = er_client.get_subjectgroup_observations(
             subject_group_name="Ecoscope",
             since="2015-01-01T12:00:00",
             until="2015-03-01T12:00:00",
         )
-        assert isinstance(gdf, gpd.GeoDataFrame)
-        assert len(gdf) == nrecords
+        assert isinstance(table, pa.Table)
+        assert len(table) == nrecords
         # Check expected columns from ECOSCOPE_SLIM_V1 schema
         expected_columns = list(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1.names)
         for col in expected_columns:
-            assert col in gdf.columns, f"Missing expected column: {col}"
+            assert col in table.column_names, f"Missing expected column: {col}"
 
 
 def test_client_get_patrol_observations_with_patrol_filter(
     app: FastAPI,
     nrecords: int,
 ) -> None:
-    """Test the sync get_patrol_observations_with_patrol_filter returns GeoDataFrame."""
+    """Test the sync get_patrol_observations_with_patrol_filter returns PyArrow Table."""
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -138,19 +137,19 @@ def test_client_get_patrol_observations_with_patrol_filter(
             token="abc",
             warehouse_base_url="http://test",
         )
-        gdf = er_client.get_patrol_observations_with_patrol_filter(
+        table = er_client.get_patrol_observations_with_patrol_filter(
             since="2015-01-01T12:00:00",
             until="2015-03-01T12:00:00",
             patrol_type_value=["routine_patrol"],
             status=["done"],
             include_patrol_details=True,
         )
-        assert isinstance(gdf, gpd.GeoDataFrame)
-        assert len(gdf) == nrecords
+        assert isinstance(table, pa.Table)
+        assert len(table) == nrecords
         # Check expected columns from ECOSCOPE_SLIM_V1 schema
         expected_columns = list(OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1.names)
         for col in expected_columns:
-            assert col in gdf.columns, f"Missing expected column: {col}"
+            assert col in table.column_names, f"Missing expected column: {col}"
 
 
 def test_client_unsupported_methods_raise_not_implemented() -> None:
