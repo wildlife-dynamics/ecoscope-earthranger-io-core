@@ -5,7 +5,6 @@ from datetime import datetime
 from functools import cached_property
 from typing import Any
 
-import geopandas as gpd
 import httpx
 import pyarrow as pa
 from pydantic import BaseModel, SecretStr
@@ -44,11 +43,6 @@ async def _get_table(
     return table
 
 
-def _table_to_geodataframe(table: pa.Table) -> gpd.GeoDataFrame:
-    """Convert a PyArrow Table to a GeoDataFrame."""
-    return gpd.GeoDataFrame.from_arrow(table)
-
-
 class ERWarehouseClient(BaseModel):
     """EarthRanger Warehouse Client.
 
@@ -63,12 +57,12 @@ class ERWarehouseClient(BaseModel):
         ...     token=SecretStr("your-api-token"),
         ...     warehouse_base_url="https://warehouse.pamdas.org",
         ... )
-        >>> gdf = client.get_subjectgroup_observations(  # doctest: +SKIP
+        >>> table = client.get_subjectgroup_observations(  # doctest: +SKIP
         ...     subject_group_name="Elephants",
         ...     since="2024-01-01T00:00:00Z",
         ...     until="2024-01-31T23:59:59Z",
         ... )
-        >>> gdf = client.get_patrol_observations_with_patrol_filter(  # doctest: +SKIP
+        >>> table = client.get_patrol_observations_with_patrol_filter(  # doctest: +SKIP
         ...     since="2024-01-01T00:00:00Z",
         ...     until="2024-01-31T23:59:59Z",
         ...     patrol_type_value=["routine_patrol"],
@@ -154,7 +148,7 @@ class ERWarehouseClient(BaseModel):
         include_subjectsource_details: bool = False,
         since: str | None = None,
         until: str | None = None,
-    ) -> gpd.GeoDataFrame:
+    ) -> pa.Table:
         """Get observations for a subject group from EarthRanger Data Warehouse.
 
         Args:
@@ -167,7 +161,7 @@ class ERWarehouseClient(BaseModel):
             until: End of time range (ISO 8601 format).
 
         Returns:
-            GeoDataFrame with observations data.
+            PyArrow Table with observations data.
         """
         if since is None or until is None:
             raise ValueError("Both 'since' and 'until' must be provided")
@@ -179,7 +173,7 @@ class ERWarehouseClient(BaseModel):
             subject_group_name=subject_group_name,
         )
         table = self._run_async(self._fetch_observations_arrow(query))
-        return _table_to_geodataframe(table)
+        return table
 
     def get_patrol_observations_with_patrol_filter(
         self,
@@ -189,7 +183,7 @@ class ERWarehouseClient(BaseModel):
         status: list[str] | None = None,
         include_patrol_details: bool = True,
         sub_page_size: int | None = None,
-    ) -> gpd.GeoDataFrame:
+    ) -> pa.Table:
         """Get patrol observations filtered by patrol type and status.
 
         Args:
@@ -201,7 +195,7 @@ class ERWarehouseClient(BaseModel):
             sub_page_size: Ignored (for interface compatibility).
 
         Returns:
-            GeoDataFrame with patrol observations data including patrol metadata.
+            PyArrow Table with patrol observations data including patrol metadata.
         """
         if since is None or until is None:
             raise ValueError("Both 'since' and 'until' must be provided")
@@ -215,7 +209,7 @@ class ERWarehouseClient(BaseModel):
             include_patrol_details=include_patrol_details,
         )
         table = self._run_async(self._fetch_observations_arrow(query))
-        return _table_to_geodataframe(table)
+        return table
 
     # -------------------------------------------------------------------------
     # EarthRangerClientProtocol implementation - Not Implemented
@@ -230,7 +224,7 @@ class ERWarehouseClient(BaseModel):
         status: list[str] | None = None,
         drop_null_geometry: bool = False,
         sub_page_size: int | None = None,
-    ) -> gpd.GeoDataFrame:
+    ) -> pa.Table:
         """Not implemented - events not yet supported by the Data Warehouse."""
         raise NotImplementedError(
             "get_patrol_events is not yet implemented in ERWarehouseClient. "
@@ -246,7 +240,7 @@ class ERWarehouseClient(BaseModel):
         include_details: bool = False,
         include_updates: bool = False,
         include_related_events: bool = False,
-    ) -> gpd.GeoDataFrame:
+    ) -> pa.Table:
         """Not implemented - events not yet supported by the Data Warehouse."""
         raise NotImplementedError(
             "get_events is not yet implemented in ERWarehouseClient. "
@@ -279,7 +273,7 @@ class ERWarehouseClient(BaseModel):
         patrols_df: Any,
         include_patrol_details: bool = True,
         sub_page_size: int | None = None,
-    ) -> gpd.GeoDataFrame:
+    ) -> pa.Table:
         """Not implemented - querying by patrol IDs not yet supported.
 
         Use get_patrol_observations_with_patrol_filter() instead to query
