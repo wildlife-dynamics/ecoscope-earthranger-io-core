@@ -1,9 +1,6 @@
-from datetime import datetime
-from typing import Optional
-
 import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pyarrow as pa
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from ecoscope_earthranger_io_core.arrow import (
@@ -12,7 +9,7 @@ from ecoscope_earthranger_io_core.arrow import (
     SchemaChoices,
     TransformSpec,
 )
-from ecoscope_earthranger_io_core.query import ObservationsQuery, PatrolStatus
+from ecoscope_earthranger_io_core.query import ObservationsQuery
 
 from conftest import get_async_rb_generator_from_storage_backend
 
@@ -100,24 +97,7 @@ PATROL_TRANSFORM = TransformSpec(
 
 @observations.get("/stream/arrow")
 async def get_observations_streaming_arrow(
-    tenant_domain: str = Query(..., description="Tenant domain"),
-    range_start: datetime = Query(..., description="Start of time range"),
-    range_end: datetime = Query(..., description="End of time range"),
-    subject_ids: Optional[list[str]] = Query(
-        None, description="Optional list of subject IDs to filter by"
-    ),
-    subject_group_name: Optional[str] = Query(
-        None, description="Optional subject group name to filter by"
-    ),
-    patrol_type_value: Optional[list[str]] = Query(
-        None, description="Optional list of patrol type values to filter by"
-    ),
-    patrol_status: Optional[list[PatrolStatus]] = Query(
-        None, description="Optional list of patrol statuses to filter by"
-    ),
-    include_patrol_details: bool = Query(
-        False, description="Include patrol metadata in response"
-    ),
+    query: ObservationsQuery = Depends(ObservationsQuery.from_query_params),
     schema: SchemaChoices = Query(
         "ECOSCOPE_SLIM_V1",
         description="Schema to use for the response",
@@ -129,20 +109,8 @@ async def get_observations_streaming_arrow(
     - Subject group observations: Use subject_ids or subject_group_name
     - Patrol observations: Use patrol_type_value, patrol_status, include_patrol_details
     """
-    # Create query object for the generator using core ObservationsQuery
-    query = ObservationsQuery(
-        tenant_domain=tenant_domain,
-        range_start=range_start,
-        range_end=range_end,
-        subject_ids=subject_ids or ["subject1", "subject2"],  # Default for tests
-        subject_group_name=subject_group_name,
-        patrol_type_value=patrol_type_value,
-        patrol_status=patrol_status,
-        include_patrol_details=include_patrol_details,
-    )
-
     # When patrol details are requested, use the patrol transform
-    if include_patrol_details:
+    if query.include_patrol_details:
         transform = PATROL_TRANSFORM
     else:
         transform = TRANSFORMS[schema]
