@@ -226,7 +226,7 @@ class ERWarehouseClient(BaseModel):
         table = self._run_async(self._fetch_observations_arrow(query))
         return table
 
-    def get_patrols(
+    def get_patrols_minimal(
         self,
         since: str,
         until: str,
@@ -234,7 +234,13 @@ class ERWarehouseClient(BaseModel):
         status: list[str] | None = None,
         sub_page_size: int | None = None,
     ) -> pa.Table:
-        """Get patrols from EarthRanger Data Warehouse.
+        """Get minimal patrol data from EarthRanger Data Warehouse.
+
+        Note:
+            This method returns minimal patrol data and does NOT include patrol
+            events. Unlike the EarthRanger API's `get_patrols` method, this returns
+            only patrol metadata, without segments or associated events.
+            Please consider this method experimental and use it when event data is not required.
 
         Args:
             since: Start of time range (ISO 8601 format).
@@ -244,7 +250,8 @@ class ERWarehouseClient(BaseModel):
             sub_page_size: Ignored (for interface compatibility).
 
         Returns:
-            PyArrow Table with patrols data (nested format with patrol_segments).
+            PyArrow Table with minimal patrol data (metadata only, no segments
+            or events).
         """
         query = PatrolsQuery(
             tenant_domain=self.server,
@@ -265,7 +272,7 @@ class ERWarehouseClient(BaseModel):
 
         Args:
             patrols_df: PyArrow Table or Pandas DataFrame with patrol data
-                (as returned by get_patrols).
+                (as returned by get_patrols_minimal).
             include_patrol_details: Whether to include patrol metadata.
             sub_page_size: Ignored (for interface compatibility).
 

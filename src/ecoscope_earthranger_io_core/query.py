@@ -119,8 +119,8 @@ class PatrolsQuery(_WarehouseQuery):
     patrol_ids: list[str] | None = None
     patrol_type_value: list[str] | None = None
     patrol_status: list[PatrolStatus] | None = None
-    include_patrol_segments: bool = True
-    flat: bool = False
+    include_patrol_segments: bool = False
+    flat: bool = True
 
     @classmethod
     def from_query_params(
@@ -131,8 +131,8 @@ class PatrolsQuery(_WarehouseQuery):
         patrol_ids: list[str] | None = Query(None),
         patrol_type_value: list[str] | None = Query(None),
         patrol_status: list[PatrolStatus] | None = Query(None),
-        include_patrol_segments: bool = Query(True),
-        flat: bool = Query(False),
+        include_patrol_segments: bool = Query(False),
+        flat: bool = Query(True),
     ) -> "PatrolsQuery":
         return cls(
             tenant_domain=tenant_domain,

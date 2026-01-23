@@ -153,8 +153,8 @@ def test_client_get_patrol_observations_with_patrol_filter(
             assert col in table.column_names, f"Missing expected column: {col}"
 
 
-def test_client_get_patrols(app: FastAPI) -> None:
-    """Test the sync get_patrols method returns PyArrow Table with nested schema."""
+def test_client_get_patrols_minimal(app: FastAPI) -> None:
+    """Test the sync get_patrols_minimal method returns PyArrow Table with nested schema."""
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -175,7 +175,7 @@ def test_client_get_patrols(app: FastAPI) -> None:
             token="abc",
             warehouse_base_url="http://test",
         )
-        table = er_client.get_patrols(
+        table = er_client.get_patrols_minimal(
             since="2015-01-01T12:00:00",
             until="2015-03-01T12:00:00",
             patrol_type_value=["routine_patrol"],
@@ -194,7 +194,7 @@ def test_client_get_patrols(app: FastAPI) -> None:
 
 
 def test_client_get_patrol_observations(app: FastAPI) -> None:
-    """Test get_patrol_observations with patrols_df from get_patrols."""
+    """Test get_patrol_observations with patrols_df from get_patrols_minimal."""
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -216,8 +216,8 @@ def test_client_get_patrol_observations(app: FastAPI) -> None:
             warehouse_base_url="http://test",
         )
 
-        # First get patrols
-        patrols_table = er_client.get_patrols(
+        # First get patrols (minimal data without events)
+        patrols_table = er_client.get_patrols_minimal(
             since="2015-01-01T12:00:00",
             until="2015-03-01T12:00:00",
             patrol_type_value=["routine_patrol"],
