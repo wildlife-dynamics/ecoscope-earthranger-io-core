@@ -154,13 +154,13 @@ class _PatrolsQuery(_WarehouseQuery):
 
 
 class PatrolEventsQuery(_PatrolsQuery):
-    """An EarthRanger patrol observations query.
+    """An EarthRanger patrol events query.
 
     Examples:
 
     ```python
-    >>> from ecoscope_earthranger_io_core.query import PatrolObservationsQuery
-    >>> query = PatrolObservationsQuery(
+    >>> from ecoscope_earthranger_io_core.query import PatrolEventsQuery
+    >>> query = PatrolEventsQuery(
     ...     tenant_domain="some-site.pamdas.org",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
