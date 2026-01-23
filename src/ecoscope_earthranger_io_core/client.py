@@ -339,10 +339,14 @@ class ERWarehouseClient(BaseModel):
         if not time_starts or not time_ends:
             raise ValueError("Cannot determine time range from patrol data")
 
+        # Normalize Z suffix to +00:00 for fromisoformat compatibility
+        range_start = min(time_starts).replace("Z", "+00:00")
+        range_end = max(time_ends).replace("Z", "+00:00")
+
         query = ObservationsQuery(
             tenant_domain=self.server,
-            range_start=datetime.fromisoformat(min(time_starts)),
-            range_end=datetime.fromisoformat(max(time_ends)),
+            range_start=datetime.fromisoformat(range_start),
+            range_end=datetime.fromisoformat(range_end),
             patrol_ids=list(set(patrol_ids)),
             include_patrol_details=include_patrol_details,
         )
