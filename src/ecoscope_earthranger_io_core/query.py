@@ -147,29 +147,10 @@ class PatrolsQuery(_WarehouseQuery):
 
 
 class _PatrolsQuery(_WarehouseQuery):
+    # ToDo: conciliate this with PatrolsQuery (to remove this class)
+    # Kept for backward compatibility with PatrolEventsQuery, until we support events in the warehouse API
     patrol_ids: list[str]
     patrol_statuses: list[PatrolStatus]
-
-
-class PatrolObservationsQuery(_PatrolsQuery):
-    """An EarthRanger patrol observations query.
-
-    Examples:
-
-    ```python
-    >>> from ecoscope_earthranger_io_core.query import PatrolObservationsQuery
-    >>> query = PatrolObservationsQuery(
-    ...     tenant_domain="some-site.pamdas.org",
-    ...     range_start=datetime(2023, 1, 1),
-    ...     range_end=datetime(2023, 12, 31),
-    ...     patrol_ids=["patrol1", "patrol2"],
-    ...     patrol_statuses=["done"],
-    ... )
-    >>>
-    ```
-    """
-
-    pass
 
 
 class PatrolEventsQuery(_PatrolsQuery):
