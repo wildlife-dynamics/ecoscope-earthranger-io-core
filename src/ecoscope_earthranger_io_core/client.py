@@ -177,6 +177,7 @@ class ERWarehouseClient(BaseModel):
 
         Returns:
             PyArrow Table with observations data.
+            Schema: OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1.
         """
         if since is None or until is None:
             raise ValueError("Both 'since' and 'until' must be provided")
@@ -211,6 +212,7 @@ class ERWarehouseClient(BaseModel):
 
         Returns:
             PyArrow Table with patrol observations data including patrol metadata.
+            Schema: OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1.
         """
         if since is None or until is None:
             raise ValueError("Both 'since' and 'until' must be provided")
@@ -251,7 +253,7 @@ class ERWarehouseClient(BaseModel):
 
         Returns:
             PyArrow Table with minimal patrol data (metadata only, no segments
-            or events).
+            or events). Schema: PATROLS_ONLY_SCHEMA_V1.
         """
         query = PatrolsQuery(
             tenant_domain=self.server,
@@ -278,6 +280,7 @@ class ERWarehouseClient(BaseModel):
 
         Returns:
             PyArrow Table with patrol observations data.
+            Schema: OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1.
         """
         # Handle both PyArrow Table and Pandas DataFrame
         if hasattr(patrols_df, "column"):  # PyArrow Table
