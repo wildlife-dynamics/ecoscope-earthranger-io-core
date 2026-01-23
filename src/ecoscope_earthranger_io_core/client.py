@@ -226,49 +226,6 @@ class ERWarehouseClient(BaseModel):
         table = self._run_async(self._fetch_observations_arrow(query))
         return table
 
-    # -------------------------------------------------------------------------
-    # EarthRangerClientProtocol implementation - Not Implemented
-    # -------------------------------------------------------------------------
-
-    def get_patrol_events(
-        self,
-        since: str | None = None,
-        until: str | None = None,
-        patrol_type_value: list[str] | None = None,
-        event_type: list[str] | None = None,
-        status: list[str] | None = None,
-        drop_null_geometry: bool = False,
-        sub_page_size: int | None = None,
-    ) -> pa.Table:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_patrol_events is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
-        )
-
-    def get_events(
-        self,
-        since: str | None = None,
-        until: str | None = None,
-        event_type: list[str] | None = None,
-        drop_null_geometry: bool = False,
-        include_details: bool = False,
-        include_updates: bool = False,
-        include_related_events: bool = False,
-    ) -> pa.Table:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_events is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
-        )
-
-    def get_event_types(self) -> Any:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_event_types is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
-        )
-
     def get_patrols(
         self,
         since: str,
@@ -351,6 +308,49 @@ class ERWarehouseClient(BaseModel):
             include_patrol_details=include_patrol_details,
         )
         return self._run_async(self._fetch_observations_arrow(query))
+
+    # -------------------------------------------------------------------------
+    # EarthRangerClientProtocol implementation - Not Implemented
+    # -------------------------------------------------------------------------
+
+    def get_patrol_events(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        patrol_type_value: list[str] | None = None,
+        event_type: list[str] | None = None,
+        status: list[str] | None = None,
+        drop_null_geometry: bool = False,
+        sub_page_size: int | None = None,
+    ) -> pa.Table:
+        """Not implemented - events not yet supported by the Data Warehouse."""
+        raise NotImplementedError(
+            "get_patrol_events is not yet implemented in ERWarehouseClient. "
+            "Events are not currently supported by the Data Warehouse API."
+        )
+
+    def get_events(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        event_type: list[str] | None = None,
+        drop_null_geometry: bool = False,
+        include_details: bool = False,
+        include_updates: bool = False,
+        include_related_events: bool = False,
+    ) -> pa.Table:
+        """Not implemented - events not yet supported by the Data Warehouse."""
+        raise NotImplementedError(
+            "get_events is not yet implemented in ERWarehouseClient. "
+            "Events are not currently supported by the Data Warehouse API."
+        )
+
+    def get_event_types(self) -> Any:
+        """Not implemented - events not yet supported by the Data Warehouse."""
+        raise NotImplementedError(
+            "get_event_types is not yet implemented in ERWarehouseClient. "
+            "Events are not currently supported by the Data Warehouse API."
+        )
 
     def get_event_type_display_names_from_events(
         self,
