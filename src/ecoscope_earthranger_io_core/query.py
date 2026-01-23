@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 class _WarehouseQuery(BaseModel):
     tenant_domain: str
-    range_start: datetime
-    range_end: datetime
+    range_start: datetime | None = None
+    range_end: datetime | None = None
 
 
 PatrolStatus = Literal["active", "overdue", "done", "cancelled"]
@@ -56,8 +56,8 @@ class ObservationsQuery(_WarehouseQuery):
     def from_query_params(
         cls,
         tenant_domain: str = Query(...),
-        range_start: datetime = Query(...),
-        range_end: datetime = Query(...),
+        range_start: datetime | None = Query(None),
+        range_end: datetime | None = Query(None),
         subject_ids: list[str] | None = Query(None),
         subject_group_name: str | None = Query(None),
         patrol_ids: list[str] | None = Query(None),
@@ -126,8 +126,8 @@ class PatrolsQuery(_WarehouseQuery):
     def from_query_params(
         cls,
         tenant_domain: str = Query(...),
-        range_start: datetime = Query(...),
-        range_end: datetime = Query(...),
+        range_start: datetime | None = Query(None),
+        range_end: datetime | None = Query(None),
         patrol_ids: list[str] | None = Query(None),
         patrol_type_value: list[str] | None = Query(None),
         patrol_status: list[PatrolStatus] | None = Query(None),

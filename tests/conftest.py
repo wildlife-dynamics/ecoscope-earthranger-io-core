@@ -154,19 +154,25 @@ def get_async_rb_generator_from_storage_backend(
 
 
 def _mock_patrols_generator(
-    range_start: datetime,
-    range_end: datetime,
+    range_start: datetime | None,
+    range_end: datetime | None,
     num_patrols: int = 3,
     **kwargs: Any,
 ) -> Generator:
     """Generate mock patrol records with nested patrol_segments.
 
     Args:
-        range_start: Start of time range
-        range_end: End of time range
+        range_start: Start of time range (defaults to now if None)
+        range_end: End of time range (defaults to now + 1 day if None)
         num_patrols: Number of patrols to generate
         **kwargs: Additional kwargs (ignored) for compatibility
     """
+    # Default time range if not provided
+    if range_start is None:
+        range_start = datetime.now()
+    if range_end is None:
+        range_end = range_start + timedelta(days=1)
+
     for i in range(num_patrols):
         patrol_id = str(uuid.uuid4())
         segment_start = range_start + timedelta(hours=i)
