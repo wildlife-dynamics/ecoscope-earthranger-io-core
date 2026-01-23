@@ -6,8 +6,11 @@ import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pyarrow
 import pytest
 
-from ecoscope_earthranger_io_core.arrow import OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1
-from ecoscope_earthranger_io_core.query import ObservationsQuery
+from ecoscope_earthranger_io_core.arrow import (
+    OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1,
+    PATROLS_NESTED_SCHEMA_V1,
+)
+from ecoscope_earthranger_io_core.query import ObservationsQuery, PatrolsQuery
 
 
 def _split_datetime_range_by_delta(
@@ -146,6 +149,86 @@ def get_async_rb_generator_from_storage_backend(
                 columns=columns,
                 schema=schema,
             )
+
+    return _async_generator
+
+
+def _mock_patrols_generator(
+    range_start: datetime,
+    range_end: datetime,
+    num_patrols: int = 3,
+    **kwargs: Any,
+) -> Generator:
+    """Generate mock patrol records with nested patrol_segments.
+
+    Args:
+        range_start: Start of time range
+        range_end: End of time range
+        num_patrols: Number of patrols to generate
+        **kwargs: Additional kwargs (ignored) for compatibility
+    """
+    for i in range(num_patrols):
+        patrol_id = str(uuid.uuid4())
+        segment_start = range_start + timedelta(hours=i)
+        segment_end = segment_start + timedelta(hours=2)
+
+        # Create nested patrol_segments list
+        patrol_segments = [
+            {
+                "id": str(uuid.uuid4()),
+                "patrol_type": "routine_patrol",
+                "patrol_type_display": "Routine Patrol",
+                "leader_id": str(uuid.uuid4()),
+                "time_range_start": segment_start.isoformat(),
+                "time_range_end": segment_end.isoformat(),
+                "scheduled_start": segment_start.isoformat(),
+                "scheduled_end": segment_end.isoformat(),
+                "start_location": None,
+                "end_location": None,
+            }
+        ]
+
+        yield {
+            "id": patrol_id,
+            "serial_number": 1000 + i,
+            "priority": 0,
+            "state": "done",
+            "title": f"Mock Patrol {i + 1}",
+            "objective": "Test objective",
+            "created_at": range_start.isoformat(),
+            "updated_at": range_start.isoformat(),
+            "patrol_segments": patrol_segments,
+        }
+
+
+def create_mock_patrols_record_batch(
+    query: PatrolsQuery,
+    num_patrols: int = 3,
+) -> pyarrow.RecordBatch:
+    """Create a mock RecordBatch of patrols from a PatrolsQuery.
+
+    Args:
+        query: The patrols query with filter parameters
+        num_patrols: Number of patrols to generate
+    """
+    pylist = list(
+        _mock_patrols_generator(
+            range_start=query.range_start,
+            range_end=query.range_end,
+            num_patrols=num_patrols,
+        )
+    )
+    return pyarrow.RecordBatch.from_pylist(pylist, schema=PATROLS_NESTED_SCHEMA_V1)
+
+
+def get_async_patrols_rb_generator(
+    query: PatrolsQuery,
+    num_patrols: int = 3,
+) -> Callable[[], AsyncIterable[pyarrow.RecordBatch]]:
+    """Create an async generator function that yields mock patrol RecordBatches."""
+
+    async def _async_generator() -> AsyncIterable[pyarrow.RecordBatch]:
+        yield create_mock_patrols_record_batch(query=query, num_patrols=num_patrols)
 
     return _async_generator
 

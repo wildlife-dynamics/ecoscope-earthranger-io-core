@@ -5,13 +5,17 @@ from fastapi.responses import StreamingResponse
 
 from ecoscope_earthranger_io_core.arrow import (
     OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1,
+    PATROLS_NESTED_SCHEMA_V1,
     TRANSFORMS,
     SchemaChoices,
     TransformSpec,
 )
-from ecoscope_earthranger_io_core.query import ObservationsQuery
+from ecoscope_earthranger_io_core.query import ObservationsQuery, PatrolsQuery
 
-from conftest import get_async_rb_generator_from_storage_backend
+from conftest import (
+    get_async_patrols_rb_generator,
+    get_async_rb_generator_from_storage_backend,
+)
 
 app = FastAPI()
 observations = APIRouter(prefix="/observations")
@@ -133,3 +137,37 @@ async def get_observations_streaming_arrow(
 
 
 app.include_router(observations)
+
+# Patrols router
+patrols = APIRouter(prefix="/patrols")
+
+
+@patrols.get("/stream/arrow")
+async def get_patrols_streaming_arrow(
+    query: PatrolsQuery = Depends(PatrolsQuery.from_query_params),
+):
+    """Stream patrols as an Arrow IPC stream."""
+
+    async def generate_arrow_bytes():
+        """Generate Arrow IPC stream bytes."""
+        async_batch_generator = get_async_patrols_rb_generator(query)
+        sink = pa.BufferOutputStream()
+        writer = pa.ipc.new_stream(sink, PATROLS_NESTED_SCHEMA_V1)
+        try:
+            async for batch in async_batch_generator():
+                if batch.num_rows > 0:
+                    writer.write_batch(batch)
+        finally:
+            writer.close()
+        yield sink.getvalue().to_pybytes()
+
+    try:
+        return StreamingResponse(
+            generate_arrow_bytes(),
+            media_type="application/vnd.apache.arrow.stream",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
+
+
+app.include_router(patrols)
