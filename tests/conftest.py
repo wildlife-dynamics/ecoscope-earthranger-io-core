@@ -28,8 +28,8 @@ def _split_datetime_range_by_delta(
 
 def _mock_observations_generator(
     tenant_domain: str,
-    range_start: datetime,
-    range_end: datetime,
+    range_start: datetime | None,
+    range_end: datetime | None,
     subject_ids: list[str] | None = None,
     columns: list[str] | None = None,
     include_patrol_details: bool = False,
@@ -39,13 +39,19 @@ def _mock_observations_generator(
 
     Args:
         tenant_domain: The tenant domain
-        range_start: Start of time range
-        range_end: End of time range
+        range_start: Start of time range (defaults to now if None)
+        range_end: End of time range (defaults to now + 1 day if None)
         subject_ids: List of subject IDs to generate data for
         columns: Optional list of columns to include in output
         include_patrol_details: If True, include patrol-related fields in output
         **kwargs: Additional kwargs (ignored) for compatibility with ObservationsQuery fields
     """
+    # Default time range if not provided
+    if range_start is None:
+        range_start = datetime.now()
+    if range_end is None:
+        range_end = range_start + timedelta(days=1)
+
     # Default subject_ids for testing if not provided
     if subject_ids is None:
         subject_ids = ["subject1", "subject2"]

@@ -275,35 +275,11 @@ class ERWarehouseClient(BaseModel):
         # Handle both PyArrow Table and Pandas DataFrame
         if hasattr(patrols_df, "column"):  # PyArrow Table
             patrol_ids = patrols_df.column("id").to_pylist()
-            segments_col = patrols_df.column("patrol_segments").to_pylist()
         else:  # Pandas DataFrame
             patrol_ids = patrols_df["id"].tolist()
-            segments_col = patrols_df["patrol_segments"].tolist()
-
-        # Flatten all segments from all patrols
-        all_segments = [
-            seg for segments in segments_col if segments for seg in segments
-        ]
-
-        # Extract time ranges (warehouse API uses time_range_start/end)
-        time_starts = [
-            s["time_range_start"] for s in all_segments if s.get("time_range_start")
-        ]
-        time_ends = [
-            s["time_range_end"] for s in all_segments if s.get("time_range_end")
-        ]
-
-        if not time_starts or not time_ends:
-            raise ValueError("Cannot determine time range from patrol data")
-
-        # Normalize Z suffix to +00:00 for fromisoformat compatibility
-        range_start = min(time_starts).replace("Z", "+00:00")
-        range_end = max(time_ends).replace("Z", "+00:00")
 
         query = ObservationsQuery(
             tenant_domain=self.server,
-            range_start=datetime.fromisoformat(range_start),
-            range_end=datetime.fromisoformat(range_end),
             patrol_ids=list(set(patrol_ids)),
             include_patrol_details=include_patrol_details,
         )
