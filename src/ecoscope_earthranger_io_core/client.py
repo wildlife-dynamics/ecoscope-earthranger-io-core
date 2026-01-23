@@ -9,13 +9,13 @@ import httpx
 import pyarrow as pa
 from pydantic import BaseModel, SecretStr
 
-from ecoscope_earthranger_io_core.query import ObservationsQuery
+from ecoscope_earthranger_io_core.query import ObservationsQuery, PatrolsQuery
 
 
 async def _get_table(
     client: httpx.AsyncClient,
     route: str,
-    query: ObservationsQuery,
+    query: BaseModel,
     headers: dict[str, str] | None = None,
 ) -> pa.Table:
     """Fetch Arrow IPC stream from the warehouse API and return as a PyArrow Table.
@@ -23,7 +23,7 @@ async def _get_table(
     Args:
         client: The httpx async client.
         route: The API route to call.
-        query: The ObservationsQuery specifying what data to fetch.
+        query: A Pydantic model specifying query parameters.
         headers: Optional headers to include.
     """
     async with client.stream(
@@ -79,6 +79,7 @@ class ERWarehouseClient(BaseModel):
     # platform-level
     warehouse_base_url: str
     warehouse_observations_endpoint: str = "/observations"
+    warehouse_patrols_endpoint: str = "/patrols"
 
     def _login(self) -> None:
         raise NotImplementedError(
@@ -111,6 +112,20 @@ class ERWarehouseClient(BaseModel):
             table = await _get_table(
                 client=client,
                 route=f"{self.warehouse_observations_endpoint}/stream/arrow",
+                query=query,
+                headers=self._get_auth_headers(),
+            )
+        return table
+
+    async def _fetch_patrols_arrow(
+        self,
+        query: PatrolsQuery,
+    ) -> pa.Table:
+        """Internal async method to fetch patrols as Arrow table."""
+        async with self._httpx_client() as client:
+            table = await _get_table(
+                client=client,
+                route=f"{self.warehouse_patrols_endpoint}/stream/arrow",
                 query=query,
                 headers=self._get_auth_headers(),
             )
@@ -256,17 +271,32 @@ class ERWarehouseClient(BaseModel):
 
     def get_patrols(
         self,
-        since: str | None = None,
-        until: str | None = None,
+        since: str,
+        until: str,
         patrol_type_value: list[str] | None = None,
         status: list[str] | None = None,
         sub_page_size: int | None = None,
-    ) -> Any:
-        """Not implemented - patrols endpoint not yet available in the Data Warehouse."""
-        raise NotImplementedError(
-            "get_patrols is not yet implemented in ERWarehouseClient. "
-            "Use get_patrol_observations_with_patrol_filter instead."
+    ) -> pa.Table:
+        """Get patrols from EarthRanger Data Warehouse.
+
+        Args:
+            since: Start of time range (ISO 8601 format).
+            until: End of time range (ISO 8601 format).
+            patrol_type_value: List of patrol type values to filter by.
+            status: List of patrol statuses to filter by (e.g., ["done"]).
+            sub_page_size: Ignored (for interface compatibility).
+
+        Returns:
+            PyArrow Table with patrols data (nested format with patrol_segments).
+        """
+        query = PatrolsQuery(
+            tenant_domain=self.server,
+            range_start=datetime.fromisoformat(since),
+            range_end=datetime.fromisoformat(until),
+            patrol_type_value=patrol_type_value,
+            patrol_status=status,
         )
+        return self._run_async(self._fetch_patrols_arrow(query))
 
     def get_patrol_observations(
         self,
@@ -274,16 +304,49 @@ class ERWarehouseClient(BaseModel):
         include_patrol_details: bool = True,
         sub_page_size: int | None = None,
     ) -> pa.Table:
-        """Not implemented - querying by patrol IDs not yet supported.
+        """Get observations for patrols from EarthRanger Data Warehouse.
 
-        Use get_patrol_observations_with_patrol_filter() instead to query
-        patrol observations by patrol type and status.
+        Args:
+            patrols_df: PyArrow Table or Pandas DataFrame with patrol data
+                (as returned by get_patrols).
+            include_patrol_details: Whether to include patrol metadata.
+            sub_page_size: Ignored (for interface compatibility).
+
+        Returns:
+            PyArrow Table with patrol observations data.
         """
-        raise NotImplementedError(
-            "get_patrol_observations is not yet implemented in ERWarehouseClient. "
-            "The Data Warehouse API does not currently support querying by patrol IDs. "
-            "Use get_patrol_observations_with_patrol_filter() instead."
+        # Handle both PyArrow Table and Pandas DataFrame
+        if hasattr(patrols_df, "column"):  # PyArrow Table
+            patrol_ids = patrols_df.column("id").to_pylist()
+            segments_col = patrols_df.column("patrol_segments").to_pylist()
+        else:  # Pandas DataFrame
+            patrol_ids = patrols_df["id"].tolist()
+            segments_col = patrols_df["patrol_segments"].tolist()
+
+        # Flatten all segments from all patrols
+        all_segments = [
+            seg for segments in segments_col if segments for seg in segments
+        ]
+
+        # Extract time ranges (warehouse API uses time_range_start/end)
+        time_starts = [
+            s["time_range_start"] for s in all_segments if s.get("time_range_start")
+        ]
+        time_ends = [
+            s["time_range_end"] for s in all_segments if s.get("time_range_end")
+        ]
+
+        if not time_starts or not time_ends:
+            raise ValueError("Cannot determine time range from patrol data")
+
+        query = ObservationsQuery(
+            tenant_domain=self.server,
+            range_start=datetime.fromisoformat(min(time_starts)),
+            range_end=datetime.fromisoformat(max(time_ends)),
+            patrol_ids=list(set(patrol_ids)),
+            include_patrol_details=include_patrol_details,
         )
+        return self._run_async(self._fetch_observations_arrow(query))
 
     def get_event_type_display_names_from_events(
         self,
