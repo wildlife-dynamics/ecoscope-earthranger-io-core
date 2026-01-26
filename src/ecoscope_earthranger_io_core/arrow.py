@@ -37,6 +37,101 @@ OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
     ]
 )
 
+OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1 = pa.schema(
+    [
+        ("geometry", geoarrow.pyarrow.wkb()),
+        ("fixtime", pa.timestamp("ns", tz="UTC")),
+        ("groupby_col", pa.string()),
+        ("extra__subject__name", pa.string()),
+        ("extra__subject__subject_subtype", pa.string()),
+        ("junk_status", pa.bool_()),
+        ("patrol_id", pa.string()),
+        ("patrol_title", pa.string()),
+        ("patrol_serial_number", pa.int64()),
+        ("patrol_status", pa.string()),
+        ("patrol_type__value", pa.string()),  # Double underscore to match EarthRangerIO
+        (
+            "patrol_type__display",
+            pa.string(),
+        ),  # Double underscore to match EarthRangerIO
+        ("patrol_start_time", pa.string()),
+        ("patrol_end_time", pa.string()),
+    ]
+)
+
+# =========================================================================
+# Patrol Schemas
+# =========================================================================
+
+# Struct type for patrol segments (used in nested schema)
+PATROL_SEGMENT_STRUCT_V1 = pa.struct(
+    [
+        ("id", pa.string()),
+        ("patrol_type", pa.string()),
+        ("patrol_type_display", pa.string()),
+        ("leader_id", pa.string()),
+        ("time_range_start", pa.string()),
+        ("time_range_end", pa.string()),
+        ("scheduled_start", pa.string()),
+        ("scheduled_end", pa.string()),
+        ("start_location", pa.string()),
+        ("end_location", pa.string()),
+    ]
+)
+
+# Nested schema: one row per patrol with patrol_segments as list of structs
+PATROLS_NESTED_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("serial_number", pa.int64()),
+        ("priority", pa.int64()),
+        ("state", pa.string()),
+        ("title", pa.string()),
+        ("objective", pa.string()),
+        ("created_at", pa.string()),
+        ("updated_at", pa.string()),
+        ("patrol_segments", pa.list_(PATROL_SEGMENT_STRUCT_V1)),
+    ]
+)
+
+# Flat schema: one row per patrol-segment combination
+PATROLS_FLAT_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("serial_number", pa.int64()),
+        ("priority", pa.int64()),
+        ("state", pa.string()),
+        ("title", pa.string()),
+        ("objective", pa.string()),
+        ("created_at", pa.string()),
+        ("updated_at", pa.string()),
+        ("segment_id", pa.string()),
+        ("patrol_type", pa.string()),
+        ("patrol_type_display", pa.string()),
+        ("leader_id", pa.string()),
+        ("time_range_start", pa.string()),
+        ("time_range_end", pa.string()),
+        ("scheduled_start", pa.string()),
+        ("scheduled_end", pa.string()),
+        ("start_location", pa.string()),
+        ("end_location", pa.string()),
+    ]
+)
+
+# Patrol-only schema: no segment columns
+PATROLS_ONLY_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("serial_number", pa.int64()),
+        ("priority", pa.int64()),
+        ("state", pa.string()),
+        ("title", pa.string()),
+        ("objective", pa.string()),
+        ("created_at", pa.string()),
+        ("updated_at", pa.string()),
+    ]
+)
+
 
 def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
     """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
