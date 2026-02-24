@@ -17,7 +17,7 @@ authors = [
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "pydantic >=2.0.0,<3",
-    "pyarrow >=20.0.0,<21",
+    "pyarrow >=20.0.0,<24",
     "geoarrow-pyarrow >=0.2.0,<0.3",
     # note that pip distributions deliberately exclude
     # geopandas and pandera, as they are not necessary
@@ -35,7 +35,7 @@ test = [
 [tool.pixi.dependencies]
 python = ">=3.10,<3.13"
 pydantic = ">=2.0.0,<3"
-pyarrow = ">=20.0.0,<21"
+pyarrow = ">=20.0.0,<24"
 geoarrow-pyarrow = ">=0.2.0,<0.3"
 geopandas = ">=1.1.0,<2"
 pandera = ">=0.24.0,<0.25"
