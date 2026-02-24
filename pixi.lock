@@ -2917,11 +2917,11 @@ packages:
   timestamp: 1733256829961
 - pypi: .
   name: ecoscope-earthranger-io-core
-  version: 0.1.dev36+gfffd4f8.d20250617
-  sha256: 5ac0856f404b68222a6dba7d9c18c160f8533773348b0ce008dd58754b397203
+  version: 0.0.3.dev0+g0349972a0.d20260224
+  sha256: b6ecfe3d16538fce89dcfa398fc724338c266a400c06914e1a19a566822b6586
   requires_dist:
   - geoarrow-pyarrow>=0.2.0,<0.3
-  - pyarrow>=20.0.0,<21
+  - pyarrow>=20.0.0,<24
   - pydantic>=2.0.0,<3
   - fastapi ; extra == 'test'
   - httpx ; extra == 'test'
