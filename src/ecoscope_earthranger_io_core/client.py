@@ -9,7 +9,11 @@ import httpx
 import pyarrow as pa
 from pydantic import BaseModel, SecretStr
 
-from ecoscope_earthranger_io_core.query import ObservationsQuery, PatrolsQuery
+from ecoscope_earthranger_io_core.query import (
+    ObservationsQuery,
+    PatrolsQuery,
+    QueryEngine,
+)
 
 
 async def _get_table(
@@ -17,6 +21,7 @@ async def _get_table(
     route: str,
     query: BaseModel,
     headers: dict[str, str] | None = None,
+    store_type: str | None = None,
 ) -> pa.Table:
     """Fetch Arrow IPC stream from the warehouse API and return as a PyArrow Table.
 
@@ -25,11 +30,16 @@ async def _get_table(
         route: The API route to call.
         query: A Pydantic model specifying query parameters.
         headers: Optional headers to include.
+        store_type: Optional store type to pass as a query parameter
+            (maps to the DWH API's ``store_type`` param).
     """
+    params = query.model_dump(exclude_none=True)
+    if store_type is not None:
+        params["store_type"] = store_type
     async with client.stream(
         "GET",
         route,
-        params=query.model_dump(exclude_none=True),
+        params=params,
         headers=headers,
         timeout=600,
     ) as response:
@@ -80,6 +90,7 @@ class ERWarehouseClient(BaseModel):
     warehouse_base_url: str
     warehouse_observations_endpoint: str = "/observations"
     warehouse_patrols_endpoint: str = "/patrols"
+    query_engine: QueryEngine = "auto"
 
     def _login(self) -> None:
         raise NotImplementedError(
@@ -106,6 +117,7 @@ class ERWarehouseClient(BaseModel):
     async def _fetch_observations_arrow(
         self,
         query: ObservationsQuery,
+        query_engine: QueryEngine = "auto",
     ) -> pa.Table:
         """Internal async method to fetch observations as Arrow table."""
         async with self._httpx_client() as client:
@@ -114,12 +126,14 @@ class ERWarehouseClient(BaseModel):
                 route=f"{self.warehouse_observations_endpoint}/stream/arrow",
                 query=query,
                 headers=self._get_auth_headers(),
+                store_type=query_engine,
             )
         return table
 
     async def _fetch_patrols_arrow(
         self,
         query: PatrolsQuery,
+        query_engine: QueryEngine = "auto",
     ) -> pa.Table:
         """Internal async method to fetch patrols as Arrow table."""
         async with self._httpx_client() as client:
@@ -128,6 +142,7 @@ class ERWarehouseClient(BaseModel):
                 route=f"{self.warehouse_patrols_endpoint}/stream/arrow",
                 query=query,
                 headers=self._get_auth_headers(),
+                store_type=query_engine,
             )
         return table
 
@@ -163,6 +178,7 @@ class ERWarehouseClient(BaseModel):
         include_subjectsource_details: bool = False,
         since: str | None = None,
         until: str | None = None,
+        query_engine: QueryEngine | None = None,
     ) -> pa.Table:
         """Get observations for a subject group from EarthRanger Data Warehouse.
 
@@ -174,6 +190,8 @@ class ERWarehouseClient(BaseModel):
             include_subjectsource_details: Ignored (for interface compatibility).
             since: Start of time range (ISO 8601 format).
             until: End of time range (ISO 8601 format).
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
 
         Returns:
             PyArrow Table with observations data.
@@ -182,13 +200,16 @@ class ERWarehouseClient(BaseModel):
         if since is None or until is None:
             raise ValueError("Both 'since' and 'until' must be provided")
 
+        engine = query_engine or self.query_engine
         query = ObservationsQuery(
             tenant_domain=self.server,
             range_start=datetime.fromisoformat(since),
             range_end=datetime.fromisoformat(until),
             subject_group_name=subject_group_name,
         )
-        table = self._run_async(self._fetch_observations_arrow(query))
+        table = self._run_async(
+            self._fetch_observations_arrow(query, query_engine=engine)
+        )
         return table
 
     def get_patrol_observations_with_patrol_filter(
@@ -199,6 +220,7 @@ class ERWarehouseClient(BaseModel):
         status: list[str] | None = None,
         include_patrol_details: bool = True,
         sub_page_size: int | None = None,
+        query_engine: QueryEngine | None = None,
     ) -> pa.Table:
         """Get patrol observations filtered by patrol type and status.
 
@@ -209,6 +231,8 @@ class ERWarehouseClient(BaseModel):
             status: List of patrol statuses to filter by (e.g., ["done"]).
             include_patrol_details: Whether to include patrol metadata.
             sub_page_size: Ignored (for interface compatibility).
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
 
         Returns:
             PyArrow Table with patrol observations data including patrol metadata.
@@ -217,6 +241,7 @@ class ERWarehouseClient(BaseModel):
         if since is None or until is None:
             raise ValueError("Both 'since' and 'until' must be provided")
 
+        engine = query_engine or self.query_engine
         query = ObservationsQuery(
             tenant_domain=self.server,
             range_start=datetime.fromisoformat(since),
@@ -225,7 +250,9 @@ class ERWarehouseClient(BaseModel):
             patrol_status=status,  # type: ignore[arg-type]
             include_patrol_details=include_patrol_details,
         )
-        table = self._run_async(self._fetch_observations_arrow(query))
+        table = self._run_async(
+            self._fetch_observations_arrow(query, query_engine=engine)
+        )
         return table
 
     def get_patrols_minimal(
@@ -235,6 +262,7 @@ class ERWarehouseClient(BaseModel):
         patrol_type_value: list[str] | None = None,
         status: list[str] | None = None,
         sub_page_size: int | None = None,
+        query_engine: QueryEngine | None = None,
     ) -> pa.Table:
         """Get minimal patrol data from EarthRanger Data Warehouse.
 
@@ -250,11 +278,14 @@ class ERWarehouseClient(BaseModel):
             patrol_type_value: List of patrol type values to filter by.
             status: List of patrol statuses to filter by (e.g., ["done"]).
             sub_page_size: Ignored (for interface compatibility).
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
 
         Returns:
             PyArrow Table with minimal patrol data (metadata only, no segments
             or events). Schema: PATROLS_ONLY_SCHEMA_V1.
         """
+        engine = query_engine or self.query_engine
         query = PatrolsQuery(
             tenant_domain=self.server,
             range_start=datetime.fromisoformat(since),
@@ -262,13 +293,14 @@ class ERWarehouseClient(BaseModel):
             patrol_type_value=patrol_type_value,
             patrol_status=status,
         )
-        return self._run_async(self._fetch_patrols_arrow(query))
+        return self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
 
     def get_patrol_observations(
         self,
         patrols_df: Any,
         include_patrol_details: bool = True,
         sub_page_size: int | None = None,
+        query_engine: QueryEngine | None = None,
     ) -> pa.Table:
         """Get observations for patrols from EarthRanger Data Warehouse.
 
@@ -277,11 +309,14 @@ class ERWarehouseClient(BaseModel):
                 (as returned by get_patrols_minimal).
             include_patrol_details: Whether to include patrol metadata.
             sub_page_size: Ignored (for interface compatibility).
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
 
         Returns:
             PyArrow Table with patrol observations data.
             Schema: OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1.
         """
+        engine = query_engine or self.query_engine
         # Handle both PyArrow Table and Pandas DataFrame
         if hasattr(patrols_df, "column"):  # PyArrow Table
             patrol_ids = patrols_df.column("id").to_pylist()
@@ -293,7 +328,9 @@ class ERWarehouseClient(BaseModel):
             patrol_ids=list(set(patrol_ids)),
             include_patrol_details=include_patrol_details,
         )
-        return self._run_async(self._fetch_observations_arrow(query))
+        return self._run_async(
+            self._fetch_observations_arrow(query, query_engine=engine)
+        )
 
     # -------------------------------------------------------------------------
     # EarthRangerClientProtocol implementation - Not Implemented

@@ -4,6 +4,8 @@ from typing import Literal
 from fastapi import Query
 from pydantic import BaseModel
 
+QueryEngine = Literal["auto", "iceberg-bq", "iceberg-dd"]
+
 
 class _WarehouseQuery(BaseModel):
     tenant_domain: str
