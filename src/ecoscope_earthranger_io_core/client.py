@@ -21,7 +21,7 @@ async def _get_table(
     route: str,
     query: BaseModel,
     headers: dict[str, str] | None = None,
-    store_type: str | None = None,
+    store_type: QueryEngine | None = None,
 ) -> pa.Table:
     """Fetch Arrow IPC stream from the warehouse API and return as a PyArrow Table.
 

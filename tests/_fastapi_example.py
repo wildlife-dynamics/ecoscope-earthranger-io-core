@@ -10,7 +10,11 @@ from ecoscope_earthranger_io_core.arrow import (
     SchemaChoices,
     TransformSpec,
 )
-from ecoscope_earthranger_io_core.query import ObservationsQuery, PatrolsQuery
+from ecoscope_earthranger_io_core.query import (
+    ObservationsQuery,
+    PatrolsQuery,
+    QueryEngine,
+)
 
 from conftest import (
     get_async_patrols_rb_generator,
@@ -106,7 +110,7 @@ async def get_observations_streaming_arrow(
         "ECOSCOPE_SLIM_V1",
         description="Schema to use for the response",
     ),
-    store_type: str | None = Query(None),
+    store_type: QueryEngine | None = Query(None),
 ):
     """Stream observations as an Arrow IPC stream.
 
@@ -146,7 +150,7 @@ patrols = APIRouter(prefix="/patrols")
 @patrols.get("/stream/arrow")
 async def get_patrols_streaming_arrow(
     query: PatrolsQuery = Depends(PatrolsQuery.from_query_params),
-    store_type: str | None = Query(None),
+    store_type: QueryEngine | None = Query(None),
 ):
     """Stream patrols as an Arrow IPC stream."""
 
