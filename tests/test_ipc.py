@@ -241,6 +241,191 @@ def test_client_get_patrol_observations(app: FastAPI) -> None:
             )
 
 
+def test_client_query_engine_default_auto(
+    app: FastAPI,
+    nrecords: int,
+) -> None:
+    """Test that the default query_engine='auto' passes store_type=auto."""
+    captured_params: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        assert er_client.query_engine == "auto"
+
+        original_get_table = _get_table
+
+        async def _capturing_get_table(*args, **kwargs):
+            captured_params["store_type"] = kwargs.get("store_type")
+            return await original_get_table(*args, **kwargs)
+
+        with patch(
+            "ecoscope_earthranger_io_core.client._get_table",
+            side_effect=_capturing_get_table,
+        ):
+            table = er_client.get_subjectgroup_observations(
+                subject_group_name="Ecoscope",
+                since="2015-01-01T12:00:00",
+                until="2015-03-01T12:00:00",
+            )
+        assert isinstance(table, pa.Table)
+        assert captured_params["store_type"] == "auto"
+
+
+def test_client_query_engine_explicit_per_request(
+    app: FastAPI,
+    nrecords: int,
+) -> None:
+    """Test that per-request query_engine overrides the client default."""
+    captured_params: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+
+        original_get_table = _get_table
+
+        async def _capturing_get_table(*args, **kwargs):
+            captured_params["store_type"] = kwargs.get("store_type")
+            return await original_get_table(*args, **kwargs)
+
+        with patch(
+            "ecoscope_earthranger_io_core.client._get_table",
+            side_effect=_capturing_get_table,
+        ):
+            table = er_client.get_subjectgroup_observations(
+                subject_group_name="Ecoscope",
+                since="2015-01-01T12:00:00",
+                until="2015-03-01T12:00:00",
+                query_engine="iceberg-bq",
+            )
+        assert isinstance(table, pa.Table)
+        assert captured_params["store_type"] == "iceberg-bq"
+
+
+def test_client_query_engine_client_level_default(
+    app: FastAPI,
+    nrecords: int,
+) -> None:
+    """Test that the client-level query_engine is used when no per-request override."""
+    captured_params: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+            query_engine="iceberg-dd",
+        )
+
+        original_get_table = _get_table
+
+        async def _capturing_get_table(*args, **kwargs):
+            captured_params["store_type"] = kwargs.get("store_type")
+            return await original_get_table(*args, **kwargs)
+
+        with patch(
+            "ecoscope_earthranger_io_core.client._get_table",
+            side_effect=_capturing_get_table,
+        ):
+            table = er_client.get_subjectgroup_observations(
+                subject_group_name="Ecoscope",
+                since="2015-01-01T12:00:00",
+                until="2015-03-01T12:00:00",
+            )
+        assert isinstance(table, pa.Table)
+        assert captured_params["store_type"] == "iceberg-dd"
+
+
+def test_client_query_engine_per_request_overrides_client_default(
+    app: FastAPI,
+    nrecords: int,
+) -> None:
+    """Test that per-request query_engine overrides the client-level default."""
+    captured_params: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+            query_engine="iceberg-dd",
+        )
+
+        original_get_table = _get_table
+
+        async def _capturing_get_table(*args, **kwargs):
+            captured_params["store_type"] = kwargs.get("store_type")
+            return await original_get_table(*args, **kwargs)
+
+        with patch(
+            "ecoscope_earthranger_io_core.client._get_table",
+            side_effect=_capturing_get_table,
+        ):
+            table = er_client.get_subjectgroup_observations(
+                subject_group_name="Ecoscope",
+                since="2015-01-01T12:00:00",
+                until="2015-03-01T12:00:00",
+                query_engine="iceberg-bq",
+            )
+        assert isinstance(table, pa.Table)
+        assert captured_params["store_type"] == "iceberg-bq"
+
+
 def test_client_unsupported_methods_raise_not_implemented() -> None:
     """Test that event-related methods raise NotImplementedError."""
     er_client = ERWarehouseClient(
