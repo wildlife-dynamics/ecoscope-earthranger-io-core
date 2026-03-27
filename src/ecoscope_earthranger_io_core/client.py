@@ -1,5 +1,8 @@
 import asyncio
+import base64
 import io
+import json
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
@@ -7,7 +10,7 @@ from typing import Any
 
 import httpx
 import pyarrow as pa
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, PrivateAttr, SecretStr
 
 from ecoscope_earthranger_io_core.query import (
     ObservationsQuery,
@@ -49,6 +52,12 @@ async def _get_table(
             sink.write(chunk)
         sink.seek(0)
     source = sink.getvalue()
+    if not source:
+        raise ConnectionError(
+            f"Warehouse API stream broke for {route}: "
+            "received an empty response. The API may have crashed or "
+            "the connection was closed unexpectedly."
+        )
     table = pa.ipc.open_stream(source).read_all()
     return table
 
@@ -60,12 +69,17 @@ class ERWarehouseClient(BaseModel):
     Implements the EarthRangerClientProtocol interface for use as a drop-in replacement
     for EarthRangerIO / EarthRangerClient in ecoscope-workflows.
 
+    The warehouse API URL is resolved automatically from the EarthRanger status
+    endpoint (``GET https://{server}/api/v1.0/status``), or can be overridden
+    explicitly via ``warehouse_base_url``. Requests to the warehouse API are
+    authenticated with both the EarthRanger API token and a Google Cloud ID token
+    obtained via Application Default Credentials.
+
     Example:
         >>> from pydantic import SecretStr
         >>> client = ERWarehouseClient(
         ...     server="mep-dev.pamdas.org",
         ...     token=SecretStr("your-api-token"),
-        ...     warehouse_base_url="https://warehouse.pamdas.org",
         ... )
         >>> table = client.get_subjectgroup_observations(  # doctest: +SKIP
         ...     subject_group_name="Elephants",
@@ -87,10 +101,14 @@ class ERWarehouseClient(BaseModel):
     token: SecretStr | None = None
 
     # platform-level
-    warehouse_base_url: str
+    warehouse_base_url: str | None = None
     warehouse_observations_endpoint: str = "/observations"
     warehouse_patrols_endpoint: str = "/patrols"
     query_engine: QueryEngine = "auto"
+
+    _resolved_base_url: str | None = PrivateAttr(default=None)
+    _cached_id_token: SecretStr | None = PrivateAttr(default=None)
+    _id_token_expiry: float = PrivateAttr(default=0.0)
 
     def _login(self) -> None:
         raise NotImplementedError(
@@ -105,14 +123,112 @@ class ERWarehouseClient(BaseModel):
             )
         return self.token
 
+    async def _resolve_warehouse_url(self) -> str:
+        """Resolve and cache the warehouse API base URL.
+
+        If ``warehouse_base_url`` was provided at construction time it is
+        returned immediately.  Otherwise the URL is fetched from the
+        EarthRanger status endpoint and cached for the lifetime of this
+        client instance.
+
+        Returns:
+            The warehouse API base URL.
+
+        Raises:
+            KeyError: If the status response is missing ``dwh_settings``
+                or ``api_url``.
+            ValueError: If ``api_url`` is present but empty.
+            httpx.HTTPStatusError: If the status endpoint returns an error.
+        """
+        if self.warehouse_base_url:
+            return self.warehouse_base_url
+        if self._resolved_base_url:
+            return self._resolved_base_url
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://{self.server}/api/v1.0/status",
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        try:
+            api_url: str = data["data"]["dwh_settings"]["api_url"]
+        except KeyError as exc:
+            raise KeyError(
+                "Status response from "
+                f"https://{self.server}/api/v1.0/status "
+                "is missing 'data.dwh_settings.api_url'"
+            ) from exc
+
+        if not api_url:
+            raise ValueError(
+                "Status response from "
+                f"https://{self.server}/api/v1.0/status "
+                "returned an empty 'data.dwh_settings.api_url'"
+            )
+
+        self._resolved_base_url = api_url
+        return api_url
+
+    def _get_id_token(self, audience: str) -> SecretStr:
+        """Return a Google Cloud ID token for *audience*, with caching.
+
+        Uses Application Default Credentials so it works transparently
+        with user credentials locally (``gcloud auth application-default
+        login``) and with service-account or metadata-server credentials
+        in cloud environments.
+
+        Args:
+            audience: The target audience (the warehouse API base URL).
+
+        Returns:
+            A ``SecretStr``-wrapped Google ID token.
+        """
+        if self._cached_id_token and time.time() < self._id_token_expiry - 300:
+            return self._cached_id_token
+
+        from google.auth.transport.requests import (  # type: ignore[import-untyped]
+            Request,
+        )
+        from google.oauth2 import id_token  # type: ignore[import-untyped]
+
+        raw_token: str = id_token.fetch_id_token(Request(), audience)
+
+        payload = raw_token.split(".")[1]
+        padding = 4 - len(payload) % 4
+        if padding != 4:
+            payload += "=" * padding
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        self._id_token_expiry = float(claims.get("exp", 0))
+
+        self._cached_id_token = SecretStr(raw_token)
+        return self._cached_id_token
+
     @asynccontextmanager
     async def _httpx_client(self):
-        async with httpx.AsyncClient(base_url=self.warehouse_base_url) as client:
+        base_url = await self._resolve_warehouse_url()
+        async with httpx.AsyncClient(base_url=base_url) as client:
             yield client
 
     def _get_auth_headers(self) -> dict[str, str]:
-        """Return authentication headers for API requests."""
-        return {"X-EarthRanger-API-Token": self._token.get_secret_value()}
+        """Return authentication headers for API requests.
+
+        Includes the EarthRanger API token and a Google Cloud ID token
+        for authenticating to the private Cloud Run warehouse service.
+        """
+        base_url = self.warehouse_base_url or self._resolved_base_url
+        if not base_url:
+            raise RuntimeError(
+                "Warehouse base URL has not been resolved yet. "
+                "Ensure _httpx_client() is entered before calling "
+                "_get_auth_headers()."
+            )
+        return {
+            "X-EarthRanger-API-Token": self._token.get_secret_value(),
+            "Authorization": f"Bearer {self._get_id_token(base_url).get_secret_value()}",
+        }
 
     async def _fetch_observations_arrow(
         self,

@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncIterable, Callable
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from pydantic import SecretStr
 
 import pyarrow as pa
 import pytest
@@ -22,10 +24,30 @@ RecordBatchGeneratorGetter = Callable[
     [ObservationsQuery], Callable[[], AsyncIterable[pa.RecordBatch]]
 ]
 
+MOCK_STATUS_RESPONSE = {
+    "data": {
+        "dwh_settings": {
+            "api_url": "https://warehouse-api-dev-123.europe-west3.run.app"
+        },
+    },
+    "status": {"code": 200, "message": "OK"},
+}
+
 
 @pytest.fixture
 def app():
     return _app
+
+
+@pytest.fixture(autouse=True)
+def _mock_id_token():
+    """Patch _get_id_token for all tests so Google credentials are not required."""
+    with patch.object(
+        ERWarehouseClient,
+        "_get_id_token",
+        return_value=SecretStr("mock-id-token"),
+    ):
+        yield
 
 
 @pytest.mark.asyncio
@@ -73,6 +95,32 @@ async def test__get_table_with_subject_group(app: FastAPI, nrecords: int) -> Non
     assert isinstance(table, pa.Table)
     assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
     assert len(table) == nrecords
+
+
+@pytest.mark.asyncio
+async def test__get_table_raises_on_empty_stream() -> None:
+    """Test that _get_table raises ConnectionError when the stream is empty."""
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 12, 31),
+    )
+
+    async def empty_response(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async with AsyncClient(
+        transport=ASGITransport(empty_response),
+        base_url="http://test",
+    ) as client:
+        with pytest.raises(ConnectionError, match="stream broke"):
+            await _get_table(
+                client=client,
+                route="/observations/stream/arrow",
+                query=query,
+            )
 
 
 def test_client_get_subjectgroup_observations(
@@ -445,3 +493,101 @@ def test_client_unsupported_methods_raise_not_implemented() -> None:
 
     with pytest.raises(NotImplementedError):
         er_client.get_event_type_display_names_from_events(events_gdf=None)
+
+
+# -------------------------------------------------------------------------
+# Multi-region / URL resolution tests
+# -------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_warehouse_url_from_status() -> None:
+    """Test that the warehouse URL is resolved from the status endpoint."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = MOCK_STATUS_RESPONSE
+    mock_response.raise_for_status.return_value = None
+
+    er_client = ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+    )
+
+    mock_ctx = AsyncMock()
+    mock_ctx.get.return_value = mock_response
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_instance.__aenter__.return_value = mock_ctx
+        mock_instance.__aexit__.return_value = False
+        mock_client_cls.return_value = mock_instance
+
+        url = await er_client._resolve_warehouse_url()
+
+    assert url == "https://warehouse-api-dev-123.europe-west3.run.app"
+    assert er_client._resolved_base_url == url
+
+
+@pytest.mark.asyncio
+async def test_resolve_warehouse_url_caches_result() -> None:
+    """Test that repeated calls return the cached URL without extra HTTP calls."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = MOCK_STATUS_RESPONSE
+    mock_response.raise_for_status.return_value = None
+
+    er_client = ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+    )
+
+    mock_ctx = AsyncMock()
+    mock_ctx.get.return_value = mock_response
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_instance.__aenter__.return_value = mock_ctx
+        mock_instance.__aexit__.return_value = False
+        mock_client_cls.return_value = mock_instance
+
+        url1 = await er_client._resolve_warehouse_url()
+        url2 = await er_client._resolve_warehouse_url()
+
+    assert url1 == url2
+    mock_ctx.get.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_resolve_warehouse_url_override_skips_status() -> None:
+    """Test that an explicit warehouse_base_url skips the status endpoint."""
+    er_client = ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+        warehouse_base_url="https://my-override.example.com",
+    )
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        url = await er_client._resolve_warehouse_url()
+
+    assert url == "https://my-override.example.com"
+    mock_client_cls.assert_not_called()
+
+
+def test_get_auth_headers_includes_both_tokens() -> None:
+    """Test that auth headers include both ER token and Google ID token."""
+    er_client = ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+        warehouse_base_url="https://warehouse.example.com",
+    )
+    headers = er_client._get_auth_headers()
+
+    assert headers["X-EarthRanger-API-Token"] == "abc"
+    assert headers["Authorization"] == "Bearer mock-id-token"
+
+
+def test_warehouse_base_url_is_optional() -> None:
+    """Test that ERWarehouseClient can be constructed without warehouse_base_url."""
+    er_client = ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+    )
+    assert er_client.warehouse_base_url is None
