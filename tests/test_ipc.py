@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import AsyncIterable, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from pydantic import SecretStr
+
 import pyarrow as pa
 import pytest
 from fastapi import FastAPI
@@ -43,7 +45,7 @@ def _mock_id_token():
     with patch.object(
         ERWarehouseClient,
         "_get_id_token",
-        return_value="mock-id-token",
+        return_value=SecretStr("mock-id-token"),
     ):
         yield
 

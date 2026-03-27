@@ -107,7 +107,7 @@ class ERWarehouseClient(BaseModel):
     query_engine: QueryEngine = "auto"
 
     _resolved_base_url: str | None = PrivateAttr(default=None)
-    _cached_id_token: str | None = PrivateAttr(default=None)
+    _cached_id_token: SecretStr | None = PrivateAttr(default=None)
     _id_token_expiry: float = PrivateAttr(default=0.0)
 
     def _login(self) -> None:
@@ -172,7 +172,7 @@ class ERWarehouseClient(BaseModel):
         self._resolved_base_url = api_url
         return api_url
 
-    def _get_id_token(self, audience: str) -> str:
+    def _get_id_token(self, audience: str) -> SecretStr:
         """Return a Google Cloud ID token for *audience*, with caching.
 
         Uses Application Default Credentials so it works transparently
@@ -184,7 +184,7 @@ class ERWarehouseClient(BaseModel):
             audience: The target audience (the warehouse API base URL).
 
         Returns:
-            A valid Google ID token string.
+            A ``SecretStr``-wrapped Google ID token.
         """
         if self._cached_id_token and time.time() < self._id_token_expiry - 300:
             return self._cached_id_token
@@ -194,17 +194,17 @@ class ERWarehouseClient(BaseModel):
         )
         from google.oauth2 import id_token  # type: ignore[import-untyped]
 
-        token: str = id_token.fetch_id_token(Request(), audience)
-        self._cached_id_token = token
+        raw_token: str = id_token.fetch_id_token(Request(), audience)
 
-        payload = token.split(".")[1]
+        payload = raw_token.split(".")[1]
         padding = 4 - len(payload) % 4
         if padding != 4:
             payload += "=" * padding
         claims = json.loads(base64.urlsafe_b64decode(payload))
         self._id_token_expiry = float(claims.get("exp", 0))
 
-        return token
+        self._cached_id_token = SecretStr(raw_token)
+        return self._cached_id_token
 
     @asynccontextmanager
     async def _httpx_client(self):
@@ -227,7 +227,7 @@ class ERWarehouseClient(BaseModel):
             )
         return {
             "X-EarthRanger-API-Token": self._token.get_secret_value(),
-            "Authorization": f"Bearer {self._get_id_token(base_url)}",
+            "Authorization": f"Bearer {self._get_id_token(base_url).get_secret_value()}",
         }
 
     async def _fetch_observations_arrow(
