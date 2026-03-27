@@ -52,6 +52,12 @@ async def _get_table(
             sink.write(chunk)
         sink.seek(0)
     source = sink.getvalue()
+    if not source:
+        raise ConnectionError(
+            f"Warehouse API stream broke for {route}: "
+            "received an empty response. The API may have crashed or "
+            "the connection was closed unexpectedly."
+        )
     table = pa.ipc.open_stream(source).read_all()
     return table
 
@@ -131,6 +137,7 @@ class ERWarehouseClient(BaseModel):
         Raises:
             KeyError: If the status response is missing ``dwh_settings``
                 or ``api_url``.
+            ValueError: If ``api_url`` is present but empty.
             httpx.HTTPStatusError: If the status endpoint returns an error.
         """
         if self.warehouse_base_url:
@@ -139,7 +146,10 @@ class ERWarehouseClient(BaseModel):
             return self._resolved_base_url
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"https://{self.server}/api/v1.0/status")
+            response = await client.get(
+                f"https://{self.server}/api/v1.0/status",
+                timeout=30.0,
+            )
             response.raise_for_status()
             data = response.json()
 

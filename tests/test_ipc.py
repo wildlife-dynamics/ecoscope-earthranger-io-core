@@ -95,6 +95,32 @@ async def test__get_table_with_subject_group(app: FastAPI, nrecords: int) -> Non
     assert len(table) == nrecords
 
 
+@pytest.mark.asyncio
+async def test__get_table_raises_on_empty_stream() -> None:
+    """Test that _get_table raises ConnectionError when the stream is empty."""
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 12, 31),
+    )
+
+    async def empty_response(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async with AsyncClient(
+        transport=ASGITransport(empty_response),
+        base_url="http://test",
+    ) as client:
+        with pytest.raises(ConnectionError, match="stream broke"):
+            await _get_table(
+                client=client,
+                route="/observations/stream/arrow",
+                query=query,
+            )
+
+
 def test_client_get_subjectgroup_observations(
     app: FastAPI,
     nrecords: int,
@@ -488,8 +514,10 @@ async def test_resolve_warehouse_url_from_status() -> None:
     mock_ctx.get.return_value = mock_response
 
     with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client_cls.return_value.__aenter__.return_value = mock_ctx
-        mock_client_cls.return_value.__aexit__.return_value = False
+        mock_instance = AsyncMock()
+        mock_instance.__aenter__.return_value = mock_ctx
+        mock_instance.__aexit__.return_value = False
+        mock_client_cls.return_value = mock_instance
 
         url = await er_client._resolve_warehouse_url()
 
@@ -513,8 +541,10 @@ async def test_resolve_warehouse_url_caches_result() -> None:
     mock_ctx.get.return_value = mock_response
 
     with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client_cls.return_value.__aenter__.return_value = mock_ctx
-        mock_client_cls.return_value.__aexit__.return_value = False
+        mock_instance = AsyncMock()
+        mock_instance.__aenter__.return_value = mock_ctx
+        mock_instance.__aexit__.return_value = False
+        mock_client_cls.return_value = mock_instance
 
         url1 = await er_client._resolve_warehouse_url()
         url2 = await er_client._resolve_warehouse_url()
