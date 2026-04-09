@@ -93,8 +93,18 @@ mypy-all = { cmd = "echo 'mypy-all' complete", depends-on = [
     "mypy-312",
 ]}
 
+[tool.pixi.feature.publish.dependencies]
+rattler-build = "*"
+hatch = "*"
+hatch-vcs = "*"
+
+[tool.pixi.feature.publish.tasks]
+build-release = { cmd = "./publish/build.sh" }
+push-all = { cmd = "./publish/push.sh" }
+
 [tool.pixi.environments]
 default = { solve-group = "default" }
+publish = { features = ["publish"], solve-group = "default" }
 test-310 = { features = ["test", "py310"], solve-group = "py310" }
 test-311 = { features = ["test", "py311"], solve-group = "py311" }
 test-312 = { features = ["test", "py312"], solve-group = "py312" }
