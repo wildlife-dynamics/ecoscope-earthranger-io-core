@@ -1,0 +1,49 @@
+context:
+  name: ecoscope-earthranger-io-core
+  version: ${{ env.get("ECOSCOPE_EARTHRANGER_IO_CORE_HATCH_VCS_VERSION") }}
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  path: ../../..
+
+build:
+  noarch: python
+  script: SETUPTOOLS_SCM_PRETEND_VERSION=${{ version }} python -m pip install . -vv --no-deps
+  number: 0
+
+requirements:
+  host:
+    - python >=3.10,<3.13
+    - hatchling
+    - hatch-vcs
+    - pip
+  run:
+    - python >=3.10,<3.13
+    - pydantic >=2.0.0,<3
+    - pyarrow >=20.0.0,<24
+    - geoarrow-pyarrow >=0.2.0,<0.3
+    - google-auth >=2.0.0,<3
+    - geopandas >=1.1.0,<2
+    - pandera >=0.24.0,<0.25
+    - httpx >=0.27.0
+    - fastapi >=0.115.0
+
+tests:
+  - python:
+      imports:
+        - ecoscope_earthranger_io_core
+        - ecoscope_earthranger_io_core.client
+        - ecoscope_earthranger_io_core.arrow
+      pip_check: false
+
+about:
+  license: BSD-3-Clause
+
+extra:
+  recipe-maintainers:
+    - cisaacstern
+    - atmorling
+    - marianobrc
