@@ -591,3 +591,25 @@ def test_warehouse_base_url_is_optional() -> None:
         token="abc",
     )
     assert er_client.warehouse_base_url is None
+
+
+@pytest.mark.parametrize(
+    "raw_server, expected",
+    [
+        ("site.pamdas.org", "site.pamdas.org"),
+        ("site.pamdas.org/", "site.pamdas.org"),
+        ("https://site.pamdas.org", "site.pamdas.org"),
+        ("http://site.pamdas.org", "site.pamdas.org"),
+        ("https://site.pamdas.org/", "site.pamdas.org"),
+        ("https://site.pamdas.org/api/v1.0", "site.pamdas.org"),
+        ("https://site.pamdas.org/api/v1.0/", "site.pamdas.org"),
+    ],
+)
+def test_server_field_is_normalized(raw_server: str, expected: str) -> None:
+    """Test that the server field strips scheme, path, and trailing slashes."""
+    er_client = ERWarehouseClient(
+        server=raw_server,
+        token="abc",
+        warehouse_base_url="http://test",
+    )
+    assert er_client.server == expected

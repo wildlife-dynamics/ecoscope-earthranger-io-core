@@ -7,10 +7,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import pyarrow as pa
-from pydantic import BaseModel, PrivateAttr, SecretStr
+from pydantic import BaseModel, PrivateAttr, SecretStr, field_validator
 
 from ecoscope_earthranger_io_core.query import (
     ObservationsQuery,
@@ -109,6 +110,13 @@ class ERWarehouseClient(BaseModel):
     _resolved_base_url: str | None = PrivateAttr(default=None)
     _cached_id_token: SecretStr | None = PrivateAttr(default=None)
     _id_token_expiry: float = PrivateAttr(default=0.0)
+
+    @field_validator("server", mode="before")
+    @classmethod
+    def _normalize_server(cls, v: str) -> str:
+        if "://" in v:
+            v = urlparse(v).hostname or v
+        return v.strip("/")
 
     def _login(self) -> None:
         raise NotImplementedError(
