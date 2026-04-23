@@ -114,9 +114,25 @@ class ERWarehouseClient(BaseModel):
     @field_validator("server", mode="before")
     @classmethod
     def _normalize_server(cls, v: str) -> str:
-        if "://" in v:
-            v = urlparse(v).hostname or v
-        return v.strip("/")
+        """Normalize ``server`` to ``host[:port]``.
+
+        Strips scheme, path, query, and fragment so that downstream
+        interpolation into ``https://{server}/api/v1.0/...`` always yields a
+        well-formed URL, regardless of how the caller supplied the value.
+        """
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("server must be a non-empty string")
+        candidate = v.strip()
+        # `urlparse` only populates netloc/hostname when a scheme is present;
+        # prepend a protocol-relative marker so schemeless inputs (with or
+        # without a path) are still parsed into host/port components.
+        if "://" not in candidate:
+            candidate = f"//{candidate}"
+        parsed = urlparse(candidate)
+        host = parsed.hostname
+        if not host:
+            raise ValueError(f"Invalid server: {v!r}")
+        return f"{host}:{parsed.port}" if parsed.port else host
 
     def _login(self) -> None:
         raise NotImplementedError(
