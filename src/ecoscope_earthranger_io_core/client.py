@@ -7,10 +7,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import pyarrow as pa
-from pydantic import BaseModel, PrivateAttr, SecretStr
+from pydantic import BaseModel, PrivateAttr, SecretStr, field_validator
 
 from ecoscope_earthranger_io_core.query import (
     ObservationsQuery,
@@ -109,6 +110,29 @@ class ERWarehouseClient(BaseModel):
     _resolved_base_url: str | None = PrivateAttr(default=None)
     _cached_id_token: SecretStr | None = PrivateAttr(default=None)
     _id_token_expiry: float = PrivateAttr(default=0.0)
+
+    @field_validator("server", mode="before")
+    @classmethod
+    def _normalize_server(cls, v: str) -> str:
+        """Normalize ``server`` to ``host[:port]``.
+
+        Strips scheme, path, query, and fragment so that downstream
+        interpolation into ``https://{server}/api/v1.0/...`` always yields a
+        well-formed URL, regardless of how the caller supplied the value.
+        """
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("server must be a non-empty string")
+        candidate = v.strip()
+        # `urlparse` only populates netloc/hostname when a scheme is present;
+        # prepend a protocol-relative marker so schemeless inputs (with or
+        # without a path) are still parsed into host/port components.
+        if "://" not in candidate:
+            candidate = f"//{candidate}"
+        parsed = urlparse(candidate)
+        host = parsed.hostname
+        if not host:
+            raise ValueError(f"Invalid server: {v!r}")
+        return f"{host}:{parsed.port}" if parsed.port else host
 
     def _login(self) -> None:
         raise NotImplementedError(

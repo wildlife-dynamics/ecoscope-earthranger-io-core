@@ -591,3 +591,55 @@ def test_warehouse_base_url_is_optional() -> None:
         token="abc",
     )
     assert er_client.warehouse_base_url is None
+
+
+@pytest.mark.parametrize(
+    "raw_server, expected",
+    [
+        ("site.pamdas.org", "site.pamdas.org"),
+        ("site.pamdas.org/", "site.pamdas.org"),
+        ("https://site.pamdas.org", "site.pamdas.org"),
+        ("http://site.pamdas.org", "site.pamdas.org"),
+        ("https://site.pamdas.org/", "site.pamdas.org"),
+        ("https://site.pamdas.org/api/v1.0", "site.pamdas.org"),
+        ("https://site.pamdas.org/api/v1.0/", "site.pamdas.org"),
+        # Schemeless inputs with a path must also be sanitized.
+        ("site.pamdas.org/api/v1.0", "site.pamdas.org"),
+        ("site.pamdas.org/api/v1.0/", "site.pamdas.org"),
+        # Surrounding whitespace is tolerated.
+        ("  https://site.pamdas.org/  ", "site.pamdas.org"),
+        # urlparse lowercases the hostname component.
+        ("HTTPS://Site.Pamdas.Org/", "site.pamdas.org"),
+        # Non-default ports are preserved, with or without scheme/path.
+        ("site.pamdas.org:8443/api/v1.0/", "site.pamdas.org:8443"),
+        ("https://site.pamdas.org:8443", "site.pamdas.org:8443"),
+    ],
+)
+def test_server_field_is_normalized(raw_server: str, expected: str) -> None:
+    """Test that the server field strips scheme, path, and trailing slashes."""
+    er_client = ERWarehouseClient(
+        server=raw_server,
+        token="abc",
+        warehouse_base_url="http://test",
+    )
+    assert er_client.server == expected
+
+
+@pytest.mark.parametrize(
+    "raw_server",
+    [
+        "",
+        "   ",
+        "://nohost",
+    ],
+)
+def test_server_field_rejects_invalid_input(raw_server: str) -> None:
+    """Invalid server inputs should raise a pydantic ValidationError."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ERWarehouseClient(
+            server=raw_server,
+            token="abc",
+            warehouse_base_url="http://test",
+        )
