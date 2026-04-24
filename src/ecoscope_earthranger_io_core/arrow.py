@@ -28,7 +28,7 @@ OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
 )
 OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
     [
-        ("geometry", geoarrow.pyarrow.wkb()),
+        ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
         ("fixtime", pa.timestamp("ns", tz="UTC")),
         ("groupby_col", pa.string()),
         ("extra__subject__name", pa.string()),
@@ -39,7 +39,7 @@ OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
 
 OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1 = pa.schema(
     [
-        ("geometry", geoarrow.pyarrow.wkb()),
+        ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
         ("fixtime", pa.timestamp("ns", tz="UTC")),
         ("groupby_col", pa.string()),
         ("extra__subject__name", pa.string()),
