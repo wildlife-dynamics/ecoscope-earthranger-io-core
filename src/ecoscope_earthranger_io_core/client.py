@@ -205,7 +205,7 @@ class ERWarehouseClient(BaseModel):
         in cloud environments.
 
         Args:
-            audience: The target audience (the warehouse API base URL).
+            audience: The target audience (the warehouse API domain).
 
         Returns:
             A ``SecretStr``-wrapped Google ID token.
@@ -249,9 +249,14 @@ class ERWarehouseClient(BaseModel):
                 "Ensure _httpx_client() is entered before calling "
                 "_get_auth_headers()."
             )
+        audience = urlparse(base_url).hostname
+        if not audience:
+            raise ValueError(
+                f"Could not extract a valid hostname from warehouse URL: {base_url!r}"
+            )
         return {
             "X-EarthRanger-API-Token": self._token.get_secret_value(),
-            "Authorization": f"Bearer {self._get_id_token(base_url).get_secret_value()}",
+            "Authorization": f"Bearer {self._get_id_token(audience).get_secret_value()}",
         }
 
     async def _fetch_observations_arrow(

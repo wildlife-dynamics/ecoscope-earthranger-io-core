@@ -584,6 +584,17 @@ def test_get_auth_headers_includes_both_tokens() -> None:
     assert headers["Authorization"] == "Bearer mock-id-token"
 
 
+def test_get_auth_headers_raises_on_invalid_warehouse_url() -> None:
+    """Test that _get_auth_headers raises ValueError when hostname cannot be extracted."""
+    er_client = ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+        warehouse_base_url="not-a-url",
+    )
+    with pytest.raises(ValueError, match="Could not extract a valid hostname"):
+        er_client._get_auth_headers()
+
+
 def test_warehouse_base_url_is_optional() -> None:
     """Test that ERWarehouseClient can be constructed without warehouse_base_url."""
     er_client = ERWarehouseClient(
