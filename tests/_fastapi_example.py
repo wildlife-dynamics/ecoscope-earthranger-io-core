@@ -33,6 +33,7 @@ OBSERVATIONS_WITH_PATROL_SCHEMA_PERSISTED = pa.schema(
         ("subject_id", pa.string()),
         ("subject_name", pa.string()),
         ("subject_subtype_id", pa.string()),
+        ("source_id", pa.string()),
         ("patrol_id", pa.string()),
         ("patrol_title", pa.string()),
         ("patrol_serial_number", pa.int64()),
@@ -59,6 +60,7 @@ def _patrol_observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBa
             "recorded_at": "fixtime",
             "subject_name": "extra__subject__name",
             "subject_subtype_id": "extra__subject__subject_subtype",
+            "source_id": "extra__source",
             "patrol_type_value": "patrol_type__value",
             "patrol_type_display": "patrol_type__display",
         }
@@ -80,6 +82,7 @@ def _patrol_observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBa
         "groupby_col",
         "extra__subject__name",
         "extra__subject__subject_subtype",
+        "extra__source",
         "junk_status",
         "patrol_id",
         "patrol_title",
