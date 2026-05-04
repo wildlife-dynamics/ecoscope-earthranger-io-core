@@ -33,6 +33,7 @@ OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
         ("groupby_col", pa.string()),
         ("extra__subject__name", pa.string()),
         ("extra__subject__subject_subtype", pa.string()),
+        ("extra__source", pa.string()),
         ("junk_status", pa.bool_()),
     ]
 )
@@ -44,6 +45,7 @@ OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1 = pa.schema(
         ("groupby_col", pa.string()),
         ("extra__subject__name", pa.string()),
         ("extra__subject__subject_subtype", pa.string()),
+        ("extra__source", pa.string()),
         ("junk_status", pa.bool_()),
         ("patrol_id", pa.string()),
         ("patrol_title", pa.string()),
@@ -143,6 +145,7 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
             "location": "geometry",
             "subject_id": "groupby_col",
             "recorded_at": "fixtime",
+            "source_id": "extra__source",
             "subject_name": "extra__subject__name",
             "subject_subtype_id": "extra__subject__subject_subtype",
         }
@@ -231,6 +234,7 @@ TRANSFORMS: dict[SchemaChoices, TransformSpec] = {
             "location",
             "recorded_at",
             "subject_id",
+            "source_id",
             "subject_name",
             "subject_subtype_id",
         ],

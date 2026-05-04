@@ -15,6 +15,12 @@ from ecoscope_earthranger_io_core.query import ObservationsQuery
 from conftest import get_async_rb_generator_from_storage_backend
 
 
+def test_slim_schemas_include_extra_source():
+    """extra__source must be in the slim schemas so downstream can access it."""
+    assert "extra__source" in OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1.names
+    assert "extra__source" in OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1.names
+
+
 @pytest.mark.parametrize(
     "schema",
     [
@@ -53,3 +59,31 @@ async def test_generate_bytes():
     source = sink.getvalue()
     table = pa.ipc.open_stream(source).read_all()
     assert table.num_rows > 0
+
+
+@pytest.mark.asyncio
+async def test_generate_bytes_includes_extra_source():
+    """The ECOSCOPE_SLIM_V1 transform must produce an extra__source column."""
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 1, 2),
+    )
+    async_batch_generator = get_async_rb_generator_from_storage_backend(
+        query,
+        columns=transform.required_columns,
+        schema=transform.pre_transform_schema,
+    )
+    content_stream = transform.generate_bytes(
+        async_batch_generator=async_batch_generator()
+    )
+    sink = io.BytesIO()
+    async for chunk in content_stream:
+        sink.write(chunk)
+    sink.seek(0)
+    table = pa.ipc.open_stream(sink).read_all()
+    assert "extra__source" in table.schema.names
+    source_values = table.column("extra__source").to_pylist()
+    assert all(v is not None for v in source_values)
