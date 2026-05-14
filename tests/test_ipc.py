@@ -654,3 +654,104 @@ def test_server_field_rejects_invalid_input(raw_server: str) -> None:
             token="abc",
             warehouse_base_url="http://test",
         )
+
+
+# -------------------------------------------------------------------------
+# exclusion_flags forwarding tests
+# -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, 2, 3])
+def test_client_get_subjectgroup_observations_forwards_exclusion_flags(
+    app: FastAPI,
+    value,
+) -> None:
+    """``exclusion_flags`` should reach the query string of the mocked backend."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_subjectgroup_observations(
+            subject_group_name="Ecoscope",
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            filter=value,
+        )
+
+    params = captured["params"]
+    if value is None:
+        assert "exclusion_flags" not in params
+    else:
+        assert params["exclusion_flags"] == value
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, 2, 3])
+def test_client_get_patrol_observations_with_patrol_filter_forwards_exclusion_flags(
+    app: FastAPI,
+    value,
+) -> None:
+    """patrol-filtered observations must also forward ``exclusion_flags``."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_patrol_observations_with_patrol_filter(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            patrol_type_value=["routine_patrol"],
+            status=["done"],
+            include_patrol_details=True,
+            filter=value,
+        )
+
+    params = captured["params"]
+    if value is None:
+        assert "exclusion_flags" not in params
+    else:
+        assert params["exclusion_flags"] == value

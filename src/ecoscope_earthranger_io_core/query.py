@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 QueryEngine = Literal["auto", "iceberg-bq", "iceberg-dd"]
 
@@ -53,6 +53,14 @@ class ObservationsQuery(_WarehouseQuery):
     patrol_type_value: list[str] | None = None
     patrol_status: list[PatrolStatus] | None = None
     include_patrol_details: bool = False
+    exclusion_flags: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Bitmask filter. None=no filter, 0=clean only, "
+            ">0=AND with bitmask must be >0."
+        ),
+    )
 
     @classmethod
     def from_query_params(
@@ -66,6 +74,14 @@ class ObservationsQuery(_WarehouseQuery):
         patrol_type_value: list[str] | None = Query(None),
         patrol_status: list[PatrolStatus] | None = Query(None),
         include_patrol_details: bool = Query(False),
+        exclusion_flags: int | None = Query(
+            None,
+            ge=0,
+            description=(
+                "Bitmask filter. None=no filter, 0=clean only, "
+                ">0=AND with bitmask must be >0."
+            ),
+        ),
     ) -> "ObservationsQuery":
         return cls(
             tenant_domain=tenant_domain,
@@ -77,6 +93,7 @@ class ObservationsQuery(_WarehouseQuery):
             patrol_type_value=patrol_type_value,
             patrol_status=patrol_status,
             include_patrol_details=include_patrol_details,
+            exclusion_flags=exclusion_flags,
         )
 
 

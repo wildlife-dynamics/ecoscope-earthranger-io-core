@@ -324,6 +324,7 @@ class ERWarehouseClient(BaseModel):
         since: str | None = None,
         until: str | None = None,
         query_engine: QueryEngine | None = None,
+        filter: int | None = None,
     ) -> pa.Table:
         """Get observations for a subject group from EarthRanger Data Warehouse.
 
@@ -351,6 +352,7 @@ class ERWarehouseClient(BaseModel):
             range_start=datetime.fromisoformat(since),
             range_end=datetime.fromisoformat(until),
             subject_group_name=subject_group_name,
+            exclusion_flags=filter,
         )
         table = self._run_async(
             self._fetch_observations_arrow(query, query_engine=engine)
@@ -366,6 +368,7 @@ class ERWarehouseClient(BaseModel):
         include_patrol_details: bool = True,
         sub_page_size: int | None = None,
         query_engine: QueryEngine | None = None,
+        filter: int | None = None,
     ) -> pa.Table:
         """Get patrol observations filtered by patrol type and status.
 
@@ -394,6 +397,7 @@ class ERWarehouseClient(BaseModel):
             patrol_type_value=patrol_type_value,
             patrol_status=status,  # type: ignore[arg-type]
             include_patrol_details=include_patrol_details,
+            exclusion_flags=filter,
         )
         table = self._run_async(
             self._fetch_observations_arrow(query, query_engine=engine)
@@ -446,6 +450,7 @@ class ERWarehouseClient(BaseModel):
         include_patrol_details: bool = True,
         sub_page_size: int | None = None,
         query_engine: QueryEngine | None = None,
+        filter: int | None = None,
     ) -> pa.Table:
         """Get observations for patrols from EarthRanger Data Warehouse.
 
@@ -472,6 +477,7 @@ class ERWarehouseClient(BaseModel):
             tenant_domain=self.server,
             patrol_ids=list(set(patrol_ids)),
             include_patrol_details=include_patrol_details,
+            exclusion_flags=filter,
         )
         return self._run_async(
             self._fetch_observations_arrow(query, query_engine=engine)
