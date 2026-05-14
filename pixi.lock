@@ -3951,8 +3951,8 @@ packages:
   timestamp: 1733256829961
 - pypi: ./
   name: ecoscope-earthranger-io-core
-  version: 0.0.12.dev0+g03bddac91.d20260514
-  sha256: 26581816922399b85c120754880313cfda20fd4cb2ec263c22ec8052791159c9
+  version: 0.0.12
+  sha256: 3b3282c5b8726a6dcfecbda4326c78ba263357b29aed644b051679860191b1a4
   requires_dist:
   - geoarrow-pyarrow>=0.2.0,<0.3
   - google-auth>=2.0.0,<3
