@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PIXI_VERSION: v0.65.0
+  PIXI_VERSION: v0.68.1
 
 jobs:
   build-release:
@@ -25,7 +25,7 @@ jobs:
       - name: Install pixi
         run: curl -fsSL https://pixi.sh/install.sh | bash && echo "$HOME/.pixi/bin" >> $GITHUB_PATH
       - name: Build release
-        run: pixi run -e publish build-release
+        run: pixi run --locked -e publish build-release
       - name: Upload conda channel
         uses: actions/upload-artifact@v4
         with:
