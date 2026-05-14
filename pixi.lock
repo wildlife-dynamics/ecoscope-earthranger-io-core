@@ -5,6 +5,8 @@ environments:
     - url: https://repo.prefix.dev/ecoscope-workflows/
     - url: https://prefix.dev/conda-forge/
     - url: https://prefix.dev/pixi-build-backends/
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://prefix.dev/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -158,8 +160,8 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/orc-2.1.2-h17f744e_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pandas-2.3.0-py312hf9745cd_0.conda
-      - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
-      - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-0.31.1-h27fc3a9_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.31.1-pyhcf101f3_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pcre2-10.45-hc749103_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pillow-11.2.1-py312h80c1187_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/proj-9.6.2-h0054346_0.conda
@@ -357,8 +359,8 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/orc-2.1.2-hd90e43c_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pandas-2.3.0-py312hcb1e3ce_0.conda
-      - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
-      - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-0.31.1-h27fc3a9_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.31.1-pyhcf101f3_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pcre2-10.45-ha881caa_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pillow-11.2.1-py312h50aef2c_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/proj-9.6.2-h1318a7e_0.conda
@@ -420,6 +422,8 @@ environments:
     - url: https://repo.prefix.dev/ecoscope-workflows/
     - url: https://prefix.dev/conda-forge/
     - url: https://prefix.dev/pixi-build-backends/
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://prefix.dev/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -600,8 +604,8 @@ environments:
       - conda: https://prefix.dev/conda-forge/linux-64/orc-2.1.2-h17f744e_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pandas-2.3.0-py312hf9745cd_0.conda
-      - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
-      - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-0.31.1-h27fc3a9_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.31.1-pyhcf101f3_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/patchelf-0.18.0-h3f2d84a_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pathspec-1.0.4-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/linux-64/pcre2-10.45-hc749103_0.conda
@@ -845,8 +849,8 @@ environments:
       - conda: https://prefix.dev/conda-forge/osx-arm64/orc-2.1.2-hd90e43c_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/packaging-25.0-pyh29332c3_1.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pandas-2.3.0-py312hcb1e3ce_0.conda
-      - conda: https://prefix.dev/conda-forge/noarch/pandera-0.24.0-hd8ed1ab_2.conda
-      - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-0.31.1-h27fc3a9_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.31.1-pyhcf101f3_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/pathspec-1.0.4-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/pcre2-10.45-ha881caa_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/pexpect-4.9.0-pyhd8ed1ab_1.conda
@@ -930,6 +934,8 @@ environments:
     - url: https://prefix.dev/pixi-build-backends/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://prefix.dev/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -1191,7 +1197,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
-      - pypi: .
+      - pypi: ./
       osx-arm64:
       - conda: https://prefix.dev/conda-forge/noarch/aiohappyeyeballs-2.6.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/aiohttp-3.13.3-py310hd5e7861_0.conda
@@ -1439,7 +1445,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
-      - pypi: .
+      - pypi: ./
   test-311:
     channels:
     - url: https://repo.prefix.dev/ecoscope-workflows/
@@ -1447,6 +1453,8 @@ environments:
     - url: https://prefix.dev/pixi-build-backends/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://prefix.dev/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -1707,7 +1715,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
-      - pypi: .
+      - pypi: ./
       osx-arm64:
       - conda: https://prefix.dev/conda-forge/noarch/aiohappyeyeballs-2.6.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/aiohttp-3.13.3-py311h6771f6e_0.conda
@@ -1954,7 +1962,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
-      - pypi: .
+      - pypi: ./
   test-312:
     channels:
     - url: https://repo.prefix.dev/ecoscope-workflows/
@@ -1962,6 +1970,8 @@ environments:
     - url: https://prefix.dev/pixi-build-backends/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://prefix.dev/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -2222,7 +2232,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
-      - pypi: .
+      - pypi: ./
       osx-arm64:
       - conda: https://prefix.dev/conda-forge/noarch/aiohappyeyeballs-2.6.1-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/osx-arm64/aiohttp-3.13.3-py312h9f8c436_0.conda
@@ -2469,7 +2479,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/59/c7/0bc3343e48b0bf82582c12e773eb6995e488dc162b331a48a29e6992359c/pyarrow_stubs-19.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/84/0a/86834ddb950f1c0938416dcb5281d540896b2a8bc9697aa9c7c87aac0bc9/types_geopandas-1.0.1.20250510-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
-      - pypi: .
+      - pypi: ./
 packages:
 - conda: https://prefix.dev/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
   sha256: fe51de6107f9edc7aa4f786a70f4a883943bc9d39b3bb7307c04c41410990726
@@ -3939,10 +3949,10 @@ packages:
   - pkg:pypi/dnspython?source=hash-mapping
   size: 172172
   timestamp: 1733256829961
-- pypi: .
+- pypi: ./
   name: ecoscope-earthranger-io-core
-  version: 0.0.10.dev0+gb2c0d560c.d20260427
-  sha256: 1593fda27e78e2525f23d11a10eadafa886a48b6e8f45f6aa18c06463886064a
+  version: 0.0.12.dev0+g03bddac91.d20260514
+  sha256: 26581816922399b85c120754880313cfda20fd4cb2ec263c22ec8052791159c9
   requires_dist:
   - geoarrow-pyarrow>=0.2.0,<0.3
   - google-auth>=2.0.0,<3
@@ -3953,7 +3963,6 @@ packages:
   - pytest ; extra == 'test'
   - pytest-asyncio ; extra == 'test'
   requires_python: '>=3.10,<3.13'
-  editable: true
 - conda: https://prefix.dev/conda-forge/noarch/editables-0.5-pyhd8ed1ab_1.conda
   sha256: 8d4f908e670be360617d418c328213bc46e7100154c3742db085148141712f60
   md5: 2cf824fe702d88e641eec9f9f653e170
@@ -8242,6 +8251,18 @@ packages:
   purls: []
   size: 7364
   timestamp: 1749059959229
+- conda: https://prefix.dev/conda-forge/noarch/pandera-0.31.1-h27fc3a9_0.conda
+  sha256: 6f38ed60c3ba34c729708701f5a9798dfa396f62c5db704ce2e16aae78b86ed0
+  md5: 33197d0b44a95fa6ea53c04db06a4f94
+  depends:
+  - pandera-base ==0.31.1 pyhcf101f3_0
+  - pandas >=2.1.1
+  - numpy >=1.24.4
+  license: MIT
+  license_family: MIT
+  purls: []
+  size: 4431
+  timestamp: 1777000436203
 - conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.24.0-pyhd8ed1ab_2.conda
   sha256: 98b3e59268d73824fabc3535fbe48f5973eb70f3975686bcf35949a9f3daaa17
   md5: e1c50e117a98e39d297d9290132f032b
@@ -8257,6 +8278,23 @@ packages:
   - pkg:pypi/pandera?source=hash-mapping
   size: 154521
   timestamp: 1749059957954
+- conda: https://prefix.dev/conda-forge/noarch/pandera-base-0.31.1-pyhcf101f3_0.conda
+  sha256: d197f0ad887b9896f118e6bf9604f4ca955de49561b776e9c69b8e7cd4382cca
+  md5: 531ff805a1551c6caaf976d577ea233c
+  depends:
+  - python >=3.10
+  - packaging >=20.0
+  - pydantic
+  - typeguard
+  - typing_extensions
+  - typing_inspect >=0.6.0
+  - python
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/pandera?source=hash-mapping
+  size: 230747
+  timestamp: 1777000436203
 - conda: https://prefix.dev/conda-forge/noarch/pandera-mypy-0.24.0-hd8ed1ab_2.conda
   sha256: de9b24ee6ee6dbd5526e81da12992f09428352712e6d22338f2224cda09312fc
   md5: bfb119778798acb722005e897dbec9b1
