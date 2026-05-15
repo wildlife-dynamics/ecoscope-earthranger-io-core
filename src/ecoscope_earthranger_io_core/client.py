@@ -367,6 +367,7 @@ class ERWarehouseClient(BaseModel):
         status: list[str] | None = None,
         include_patrol_details: bool = True,
         sub_page_size: int | None = None,
+        patrols_overlap_daterange: bool = True,
         query_engine: QueryEngine | None = None,
         filter: int | None = None,
     ) -> pa.Table:
@@ -379,6 +380,9 @@ class ERWarehouseClient(BaseModel):
             status: List of patrol statuses to filter by (e.g., ["done"]).
             include_patrol_details: Whether to include patrol metadata.
             sub_page_size: Ignored (for interface compatibility).
+            patrols_overlap_daterange: If True (default), include patrols
+                whose time range overlaps [since, until]; if False, include
+                only patrols starting within that range.
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
 
@@ -396,6 +400,7 @@ class ERWarehouseClient(BaseModel):
             range_end=datetime.fromisoformat(until),
             patrol_type_value=patrol_type_value,
             patrol_status=status,  # type: ignore[arg-type]
+            patrols_overlap_daterange=patrols_overlap_daterange,
             include_patrol_details=include_patrol_details,
             exclusion_flags=filter,
         )
@@ -411,6 +416,7 @@ class ERWarehouseClient(BaseModel):
         patrol_type_value: list[str] | None = None,
         status: list[str] | None = None,
         sub_page_size: int | None = None,
+        patrols_overlap_daterange: bool = True,
         query_engine: QueryEngine | None = None,
     ) -> pa.Table:
         """Get minimal patrol data from EarthRanger Data Warehouse.
@@ -427,6 +433,9 @@ class ERWarehouseClient(BaseModel):
             patrol_type_value: List of patrol type values to filter by.
             status: List of patrol statuses to filter by (e.g., ["done"]).
             sub_page_size: Ignored (for interface compatibility).
+            patrols_overlap_daterange: If True (default), include patrols
+                whose time range overlaps [since, until]; if False, include
+                only patrols starting within that range.
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
 
@@ -441,6 +450,7 @@ class ERWarehouseClient(BaseModel):
             range_end=datetime.fromisoformat(until),
             patrol_type_value=patrol_type_value,
             patrol_status=status,
+            patrols_overlap_daterange=patrols_overlap_daterange,
         )
         return self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
 

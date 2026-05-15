@@ -755,3 +755,184 @@ def test_client_get_patrol_observations_with_patrol_filter_forwards_exclusion_fl
         assert "exclusion_flags" not in params
     else:
         assert params["exclusion_flags"] == value
+
+
+# -------------------------------------------------------------------------
+# patrols_overlap_daterange forwarding tests
+# -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_client_get_patrol_observations_with_patrol_filter_forwards_patrols_overlap_daterange(
+    app: FastAPI,
+    value,
+) -> None:
+    """patrol-filtered observations must forward ``patrols_overlap_daterange``."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_patrol_observations_with_patrol_filter(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            patrol_type_value=["routine_patrol"],
+            status=["done"],
+            patrols_overlap_daterange=value,
+            include_patrol_details=True,
+        )
+
+    params = captured["params"]
+    assert params["patrols_overlap_daterange"] == value
+
+
+def test_client_get_patrol_observations_with_patrol_filter_default_patrols_overlap_daterange_is_true(
+    app: FastAPI,
+) -> None:
+    """When the caller omits ``patrols_overlap_daterange`` it should default to True."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_patrol_observations_with_patrol_filter(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            patrol_type_value=["routine_patrol"],
+            status=["done"],
+            include_patrol_details=True,
+        )
+
+    params = captured["params"]
+    assert params["patrols_overlap_daterange"] is True
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_client_get_patrols_minimal_forwards_patrols_overlap_daterange(
+    app: FastAPI,
+    value,
+) -> None:
+    """``get_patrols_minimal`` must forward ``patrols_overlap_daterange``."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_patrols_minimal(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            patrol_type_value=["routine_patrol"],
+            status=["done"],
+            patrols_overlap_daterange=value,
+        )
+
+    params = captured["params"]
+    assert params["patrols_overlap_daterange"] == value
+
+
+def test_client_get_patrols_minimal_default_patrols_overlap_daterange_is_true(
+    app: FastAPI,
+) -> None:
+    """When the caller omits ``patrols_overlap_daterange`` it should default to True."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_patrols_minimal(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            patrol_type_value=["routine_patrol"],
+            status=["done"],
+        )
+
+    params = captured["params"]
+    assert params["patrols_overlap_daterange"] is True
