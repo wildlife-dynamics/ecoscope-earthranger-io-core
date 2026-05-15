@@ -16,6 +16,13 @@ class _WarehouseQuery(BaseModel):
 PatrolStatus = Literal["active", "overdue", "done", "cancelled"]
 
 
+_PATROLS_OVERLAP_DATERANGE_DESCRIPTION = (
+    "If True (default), include patrols whose time range overlaps "
+    "[range_start, range_end]; if False, include only patrols "
+    "starting within that range."
+)
+
+
 class ObservationsQuery(_WarehouseQuery):
     """An EarthRanger observations query.
 
@@ -52,6 +59,10 @@ class ObservationsQuery(_WarehouseQuery):
     patrol_ids: list[str] | None = None
     patrol_type_value: list[str] | None = None
     patrol_status: list[PatrolStatus] | None = None
+    patrols_overlap_daterange: bool = Field(
+        default=True,
+        description=_PATROLS_OVERLAP_DATERANGE_DESCRIPTION,
+    )
     include_patrol_details: bool = False
     exclusion_flags: int | None = Field(
         default=None,
@@ -73,6 +84,7 @@ class ObservationsQuery(_WarehouseQuery):
         patrol_ids: list[str] | None = Query(None),
         patrol_type_value: list[str] | None = Query(None),
         patrol_status: list[PatrolStatus] | None = Query(None),
+        patrols_overlap_daterange: bool = Query(True),
         include_patrol_details: bool = Query(False),
         exclusion_flags: int | None = Query(
             None,
@@ -92,6 +104,7 @@ class ObservationsQuery(_WarehouseQuery):
             patrol_ids=patrol_ids,
             patrol_type_value=patrol_type_value,
             patrol_status=patrol_status,
+            patrols_overlap_daterange=patrols_overlap_daterange,
             include_patrol_details=include_patrol_details,
             exclusion_flags=exclusion_flags,
         )
@@ -138,6 +151,10 @@ class PatrolsQuery(_WarehouseQuery):
     patrol_ids: list[str] | None = None
     patrol_type_value: list[str] | None = None
     patrol_status: list[PatrolStatus] | None = None
+    patrols_overlap_daterange: bool = Field(
+        default=True,
+        description=_PATROLS_OVERLAP_DATERANGE_DESCRIPTION,
+    )
     include_patrol_segments: bool = False
     flat: bool = True
 
@@ -150,6 +167,7 @@ class PatrolsQuery(_WarehouseQuery):
         patrol_ids: list[str] | None = Query(None),
         patrol_type_value: list[str] | None = Query(None),
         patrol_status: list[PatrolStatus] | None = Query(None),
+        patrols_overlap_daterange: bool = Query(True),
         include_patrol_segments: bool = Query(False),
         flat: bool = Query(True),
     ) -> "PatrolsQuery":
@@ -160,6 +178,7 @@ class PatrolsQuery(_WarehouseQuery):
             patrol_ids=patrol_ids,
             patrol_type_value=patrol_type_value,
             patrol_status=patrol_status,
+            patrols_overlap_daterange=patrols_overlap_daterange,
             include_patrol_segments=include_patrol_segments,
             flat=flat,
         )
