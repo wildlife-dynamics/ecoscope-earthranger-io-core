@@ -135,6 +135,75 @@ PATROLS_ONLY_SCHEMA_V1 = pa.schema(
 )
 
 
+# =========================================================================
+# Event Schemas
+# =========================================================================
+
+# Flat events schema (one row per event). ISO-string timestamps per the
+# observations/patrols convention (schema stability over typed timestamps).
+# ``event_details`` is a JSON string here; in typed mode the API swaps in a
+# struct derived from the event type's JSON-Schema via a pre_cast (the flat
+# schema is unaffected). ``reported_by`` is a JSON object string
+# ({"id","name","type"}). ``geometry`` is the EventGeometry polygon when
+# present else the Point from the event location.
+EVENTS_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("serial_number", pa.int64()),
+        ("event_type_id", pa.string()),
+        ("event_type_value", pa.string()),
+        ("event_category_value", pa.string()),
+        ("title", pa.string()),
+        ("state", pa.string()),
+        ("priority", pa.int64()),
+        ("event_time", pa.string()),
+        ("end_time", pa.string()),
+        ("created_at", pa.string()),
+        ("updated_at", pa.string()),
+        ("is_collection", pa.bool_()),
+        ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
+        ("reported_by", pa.string()),
+        ("event_details", pa.string()),
+        ("das_tenant_id", pa.string()),
+    ]
+)
+
+# Struct type for events nested inside a patrol (patrols include_events).
+PATROL_EVENT_STRUCT_V1 = pa.struct(
+    [
+        ("id", pa.string()),
+        ("serial_number", pa.int64()),
+        ("event_type", pa.string()),
+        ("priority", pa.int64()),
+        ("title", pa.string()),
+        ("state", pa.string()),
+        ("updated_at", pa.string()),
+        ("created_at", pa.string()),
+        ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
+        ("is_collection", pa.bool_()),
+        ("event_details", pa.string()),
+    ]
+)
+
+# Nested patrols schema WITH events — selected only when include_events=true.
+# This is a NEW versioned schema: PATROLS_NESTED_SCHEMA_V1 is left untouched
+# (never mutate a published versioned schema).
+PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("serial_number", pa.int64()),
+        ("priority", pa.int64()),
+        ("state", pa.string()),
+        ("title", pa.string()),
+        ("objective", pa.string()),
+        ("created_at", pa.string()),
+        ("updated_at", pa.string()),
+        ("patrol_segments", pa.list_(PATROL_SEGMENT_STRUCT_V1)),
+        ("events", pa.list_(PATROL_EVENT_STRUCT_V1)),
+    ]
+)
+
+
 def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
     """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
 
@@ -163,6 +232,8 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
 class SchemaChoices(str, Enum):
     EARTHRANGER_FULL_V1 = "EARTHRANGER_FULL_V1"
     ECOSCOPE_SLIM_V1 = "ECOSCOPE_SLIM_V1"
+    EVENTS_FLAT_V1 = "EVENTS_FLAT_V1"
+    PATROLS_WITH_EVENTS_NESTED_V1 = "PATROLS_WITH_EVENTS_NESTED_V1"
 
 
 def _subset_schema(schema: pa.Schema, fields: list[str]) -> pa.Schema:
@@ -240,5 +311,15 @@ TRANSFORMS: dict[SchemaChoices, TransformSpec] = {
         ],
         target_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
         pre_cast_fn=_observations_pre_cast,
+    ),
+    # Passthrough specs: the events flat schema and the patrols-with-events
+    # nested schema stream as-is. The typed ``event_details`` struct (and its
+    # datetime-typed variant) is swapped in dynamically by the API at request
+    # time from the event type's JSON-Schema, not via a static target_schema.
+    SchemaChoices.EVENTS_FLAT_V1: TransformSpec(
+        persisted_schema=EVENTS_SCHEMA_V1,
+    ),
+    SchemaChoices.PATROLS_WITH_EVENTS_NESTED_V1: TransformSpec(
+        persisted_schema=PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
     ),
 }

@@ -121,13 +121,68 @@ class EventsQuery(_WarehouseQuery):
     ...     tenant_domain="some-site.pamdas.org",
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
-    ...     event_ids=["subject1", "subject2"],
+    ...     event_type=["wildlife_sighting"],
     ... )
     >>>
     ```
     """
 
-    event_ids: list[str]
+    event_type: list[str] | None = None
+    include_null_geometry: bool = Field(
+        default=True,
+        description=(
+            "If True (default), include events with no geometry; "
+            "if False, exclude them."
+        ),
+    )
+
+    @classmethod
+    def from_query_params(
+        cls,
+        tenant_domain: str = Query(...),
+        range_start: datetime | None = Query(None),
+        range_end: datetime | None = Query(None),
+        event_type: list[str] | None = Query(None),
+        include_null_geometry: bool = Query(True),
+    ) -> "EventsQuery":
+        return cls(
+            tenant_domain=tenant_domain,
+            range_start=range_start,
+            range_end=range_end,
+            event_type=event_type,
+            include_null_geometry=include_null_geometry,
+        )
+
+
+class EventTypeSchemaQuery(BaseModel):
+    """Lookup for a single event type's ``event_details`` schema.
+
+    Used by the warehouse ``/events/schema`` discovery endpoint, which serves
+    exactly one event type (the typed ``event_details`` struct is derived from
+    that type's JSON-Schema).
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import EventTypeSchemaQuery
+    >>> query = EventTypeSchemaQuery(
+    ...     tenant_domain="some-site.pamdas.org",
+    ...     event_type="wildlife_sighting",
+    ... )
+    >>>
+    ```
+    """
+
+    tenant_domain: str
+    event_type: str
+
+    @classmethod
+    def from_query_params(
+        cls,
+        tenant_domain: str = Query(...),
+        event_type: str = Query(...),
+    ) -> "EventTypeSchemaQuery":
+        return cls(tenant_domain=tenant_domain, event_type=event_type)
 
 
 class PatrolsQuery(_WarehouseQuery):
@@ -156,6 +211,7 @@ class PatrolsQuery(_WarehouseQuery):
         description=_PATROLS_OVERLAP_DATERANGE_DESCRIPTION,
     )
     include_patrol_segments: bool = False
+    include_events: bool = False
     flat: bool = True
 
     @classmethod
@@ -169,6 +225,7 @@ class PatrolsQuery(_WarehouseQuery):
         patrol_status: list[PatrolStatus] | None = Query(None),
         patrols_overlap_daterange: bool = Query(True),
         include_patrol_segments: bool = Query(False),
+        include_events: bool = Query(False),
         flat: bool = Query(True),
     ) -> "PatrolsQuery":
         return cls(
@@ -180,6 +237,7 @@ class PatrolsQuery(_WarehouseQuery):
             patrol_status=patrol_status,
             patrols_overlap_daterange=patrols_overlap_daterange,
             include_patrol_segments=include_patrol_segments,
+            include_events=include_events,
             flat=flat,
         )
 
