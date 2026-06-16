@@ -211,7 +211,7 @@ class PatrolsQuery(_WarehouseQuery):
         description=_PATROLS_OVERLAP_DATERANGE_DESCRIPTION,
     )
     include_patrol_segments: bool = False
-    include_events: bool = False
+    include_events: bool = True
     flat: bool = True
 
     @classmethod
@@ -225,7 +225,7 @@ class PatrolsQuery(_WarehouseQuery):
         patrol_status: list[PatrolStatus] | None = Query(None),
         patrols_overlap_daterange: bool = Query(True),
         include_patrol_segments: bool = Query(False),
-        include_events: bool = Query(False),
+        include_events: bool = Query(True),
         flat: bool = Query(True),
     ) -> "PatrolsQuery":
         return cls(

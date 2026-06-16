@@ -85,9 +85,12 @@ def test_event_type_schema_query_from_query_params():
 # ---------------------------------------------------------------------------
 
 
-def test_patrols_query_include_events_default_false():
+def test_patrols_query_include_events_default_true():
+    # Default True for drop-in parity with EarthRangerIO.get_patrols, which
+    # returns events nested in patrol_segments by default (the workflow chain
+    # get_patrols -> unpack_events_from_patrols_df relies on it).
     q = PatrolsQuery(tenant_domain="example.pamdas.org")
-    assert q.include_events is False
+    assert q.include_events is True
 
 
 @pytest.mark.parametrize("include_events", [True, False])
