@@ -154,13 +154,17 @@ REPORTED_BY_STRUCT_V1 = pa.struct(
     ]
 )
 
-# Flat events schema (one row per event). ISO-string timestamps per the
-# observations/patrols convention (schema stability over typed timestamps).
-# ``event_details`` is a JSON string here; in typed mode the API swaps in a
-# struct derived from the event type's JSON-Schema via a pre_cast (the flat
-# schema is unaffected). ``reported_by`` is a typed ``{id, name, type}`` struct
-# (see REPORTED_BY_STRUCT_V1). ``geometry`` is the EventGeometry polygon when
-# present else the Point from the event location.
+# Flat events schema (one row per event). The root-level timestamps
+# (event_time/end_time/created_at/updated_at) are typed Arrow
+# ``timestamp[ns, UTC]``, matching the observations ecoscope-facing default
+# (``fixtime``) -- they're DB-typed end-to-end (PG timestamp -> Debezium ->
+# Iceberg TimestampType), so typing is lossless and never invalid. (This is
+# distinct from ``event_details`` datetimes, which live in free-form JSON and
+# stay opt-in/best-effort.) ``event_details`` is a JSON string here; in typed
+# mode the API swaps in a struct derived from the event type's JSON-Schema via a
+# pre_cast (the flat schema is unaffected). ``reported_by`` is a typed
+# ``{id, name, type}`` struct (see REPORTED_BY_STRUCT_V1). ``geometry`` is the
+# EventGeometry polygon when present else the Point from the event location.
 EVENTS_SCHEMA_V1 = pa.schema(
     [  # type: ignore[arg-type]
         ("id", pa.string()),
@@ -171,10 +175,10 @@ EVENTS_SCHEMA_V1 = pa.schema(
         ("title", pa.string()),
         ("state", pa.string()),
         ("priority", pa.int64()),
-        ("event_time", pa.string()),
-        ("end_time", pa.string()),
-        ("created_at", pa.string()),
-        ("updated_at", pa.string()),
+        ("event_time", pa.timestamp("ns", tz="UTC")),
+        ("end_time", pa.timestamp("ns", tz="UTC")),
+        ("created_at", pa.timestamp("ns", tz="UTC")),
+        ("updated_at", pa.timestamp("ns", tz="UTC")),
         ("is_collection", pa.bool_()),
         ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
         ("reported_by", REPORTED_BY_STRUCT_V1),
