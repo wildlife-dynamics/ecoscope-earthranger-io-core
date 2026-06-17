@@ -53,7 +53,7 @@ def test_patrol_event_struct_v1_fields():
         ("state", pa.string()),
         ("updated_at", pa.string()),
         ("created_at", pa.string()),
-        ("geometry", ga.wkb().with_crs("EPSG:4326")),
+        ("geometry", pa.binary()),
         ("is_collection", pa.bool_()),
         ("event_details", pa.string()),
     ]

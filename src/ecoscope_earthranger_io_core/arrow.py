@@ -169,6 +169,10 @@ EVENTS_SCHEMA_V1 = pa.schema(
 )
 
 # Struct type for events nested inside a patrol (patrols include_events).
+# ``geometry`` is plain WKB ``binary`` (not the geoarrow extension used by the
+# flat EVENTS_SCHEMA_V1): an extension type cannot be built inside a
+# list<struct<...>> via pyarrow's from_pylist (the nesting path), and the bytes
+# are the same WKB the consumer reads either way.
 PATROL_EVENT_STRUCT_V1 = pa.struct(
     [
         ("id", pa.string()),
@@ -179,7 +183,7 @@ PATROL_EVENT_STRUCT_V1 = pa.struct(
         ("state", pa.string()),
         ("updated_at", pa.string()),
         ("created_at", pa.string()),
-        ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
+        ("geometry", pa.binary()),
         ("is_collection", pa.bool_()),
         ("event_details", pa.string()),
     ]
