@@ -108,6 +108,7 @@ def test_patrols_query_from_query_params_patrols_overlap_daterange(value):
         patrol_status=None,
         patrols_overlap_daterange=value,
         include_patrol_segments=False,
+        include_events=False,
         flat=True,
     )
     assert q.patrols_overlap_daterange is value
