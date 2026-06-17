@@ -6,6 +6,7 @@ from ecoscope_earthranger_io_core.arrow import (
     PATROL_EVENT_STRUCT_V1,
     PATROLS_NESTED_SCHEMA_V1,
     PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
+    REPORTED_BY_STRUCT_V1,
     SchemaChoices,
     TRANSFORMS,
 )
@@ -28,13 +29,31 @@ def test_events_schema_v1_fields():
         ("updated_at", pa.string()),
         ("is_collection", pa.bool_()),
         ("geometry", ga.wkb().with_crs("EPSG:4326")),
-        ("reported_by", pa.string()),
+        ("reported_by", REPORTED_BY_STRUCT_V1),
         ("event_details", pa.string()),
         ("das_tenant_id", pa.string()),
     ]
     assert EVENTS_SCHEMA_V1.names == [name for name, _ in expected]
     for name, typ in expected:
         assert EVENTS_SCHEMA_V1.field(name).type == typ
+
+
+def test_reported_by_struct_v1_fields():
+    """reported_by is a uniform {id, name, type} struct for both subject and
+    user reporters -- the subject/user branch is collapsed server-side, so the
+    shape never diverges (type discriminates, no union needed)."""
+    expected = [
+        ("id", pa.string()),
+        ("name", pa.string()),
+        ("type", pa.string()),
+    ]
+    assert [
+        REPORTED_BY_STRUCT_V1.field(i).name
+        for i in range(REPORTED_BY_STRUCT_V1.num_fields)
+    ] == [n for n, _ in expected]
+    for name, typ in expected:
+        assert REPORTED_BY_STRUCT_V1.field(name).type == typ
+    assert EVENTS_SCHEMA_V1.field("reported_by").type == REPORTED_BY_STRUCT_V1
 
 
 def test_events_details_is_string_on_flat_schema():

@@ -139,12 +139,27 @@ PATROLS_ONLY_SCHEMA_V1 = pa.schema(
 # Event Schemas
 # =========================================================================
 
+# reported_by: the event reporter, normalized server-side to a uniform shape
+# whether it points at a subject or a user. ``type`` is the discriminator
+# ("subject" | "user" | ... | null) and ``name`` is resolved per type (subject
+# name / user display-name / null for source|community); ``id`` is the reporter
+# id. A single struct covers every reporter kind because the polymorphism lives
+# in the values, not the shape -- the subject/user branch is collapsed before
+# serialization, so there is no per-type field divergence and no union needed.
+REPORTED_BY_STRUCT_V1 = pa.struct(
+    [
+        ("id", pa.string()),
+        ("name", pa.string()),
+        ("type", pa.string()),
+    ]
+)
+
 # Flat events schema (one row per event). ISO-string timestamps per the
 # observations/patrols convention (schema stability over typed timestamps).
 # ``event_details`` is a JSON string here; in typed mode the API swaps in a
 # struct derived from the event type's JSON-Schema via a pre_cast (the flat
-# schema is unaffected). ``reported_by`` is a JSON object string
-# ({"id","name","type"}). ``geometry`` is the EventGeometry polygon when
+# schema is unaffected). ``reported_by`` is a typed ``{id, name, type}`` struct
+# (see REPORTED_BY_STRUCT_V1). ``geometry`` is the EventGeometry polygon when
 # present else the Point from the event location.
 EVENTS_SCHEMA_V1 = pa.schema(
     [  # type: ignore[arg-type]
@@ -162,7 +177,7 @@ EVENTS_SCHEMA_V1 = pa.schema(
         ("updated_at", pa.string()),
         ("is_collection", pa.bool_()),
         ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
-        ("reported_by", pa.string()),
+        ("reported_by", REPORTED_BY_STRUCT_V1),
         ("event_details", pa.string()),
         ("das_tenant_id", pa.string()),
     ]
