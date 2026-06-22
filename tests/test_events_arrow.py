@@ -2,6 +2,7 @@ import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pyarrow as pa
 
 from ecoscope_earthranger_io_core.arrow import (
+    EVENT_TYPES_SCHEMA_V1,
     EVENTS_SCHEMA_V1,
     PATROL_EVENT_STRUCT_V1,
     PATROLS_NESTED_SCHEMA_V1,
@@ -10,6 +11,21 @@ from ecoscope_earthranger_io_core.arrow import (
     SchemaChoices,
     TRANSFORMS,
 )
+
+
+def test_event_types_schema_v1_fields():
+    """Lock the /event_types listing contract (ecoscope get_event_types)."""
+    expected = [
+        ("id", pa.string()),
+        ("value", pa.string()),
+        ("display", pa.string()),
+        ("category_value", pa.string()),
+        ("is_active", pa.bool_()),
+        ("is_collection", pa.bool_()),
+    ]
+    assert EVENT_TYPES_SCHEMA_V1.names == [n for n, _ in expected]
+    for name, typ in expected:
+        assert EVENT_TYPES_SCHEMA_V1.field(name).type == typ
 
 
 def test_events_schema_v1_fields():

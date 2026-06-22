@@ -226,6 +226,19 @@ PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 = pa.schema(
     ]
 )
 
+# Listing schema for the warehouse ``GET /event_types`` endpoint — the ecoscope
+# ``get_event_types`` contract (display-name resolution).
+EVENT_TYPES_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("value", pa.string()),
+        ("display", pa.string()),
+        ("category_value", pa.string()),
+        ("is_active", pa.bool_()),
+        ("is_collection", pa.bool_()),
+    ]
+)
+
 
 def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
     """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
