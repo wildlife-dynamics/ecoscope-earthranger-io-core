@@ -6,7 +6,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -14,6 +14,8 @@ import pyarrow as pa
 from pydantic import BaseModel, PrivateAttr, SecretStr, field_validator
 
 from ecoscope_earthranger_io_core.query import (
+    EventsQuery,
+    EventTypesQuery,
     ObservationsQuery,
     PatrolsQuery,
     QueryEngine,
@@ -26,6 +28,7 @@ async def _get_table(
     query: BaseModel,
     headers: dict[str, str] | None = None,
     store_type: QueryEngine | None = None,
+    extra_params: dict | None = None,
 ) -> pa.Table:
     """Fetch Arrow IPC stream from the warehouse API and return as a PyArrow Table.
 
@@ -36,10 +39,14 @@ async def _get_table(
         headers: Optional headers to include.
         store_type: Optional store type to pass as a query parameter
             (maps to the DWH API's ``store_type`` param).
+        extra_params: Optional response-shaping flags merged into the query
+            string after the query model fields and ``store_type``.
     """
     params = query.model_dump(exclude_none=True)
     if store_type is not None:
         params["store_type"] = store_type
+    if extra_params:
+        params.update(extra_params)
     async with client.stream(
         "GET",
         route,
@@ -105,6 +112,8 @@ class ERWarehouseClient(BaseModel):
     warehouse_base_url: str | None = None
     warehouse_observations_endpoint: str = "/observations"
     warehouse_patrols_endpoint: str = "/patrols"
+    warehouse_events_endpoint: str = "/events"
+    warehouse_event_types_endpoint: str = "/event_types"
     query_engine: QueryEngine = "auto"
 
     _resolved_base_url: str | None = PrivateAttr(default=None)
@@ -285,6 +294,40 @@ class ERWarehouseClient(BaseModel):
             table = await _get_table(
                 client=client,
                 route=f"{self.warehouse_patrols_endpoint}/stream/arrow",
+                query=query,
+                headers=self._get_auth_headers(),
+                store_type=query_engine,
+            )
+        return table
+
+    async def _fetch_events_arrow(
+        self,
+        query: EventsQuery,
+        extra_params: dict | None = None,
+        query_engine: QueryEngine = "auto",
+    ) -> pa.Table:
+        """Internal async method to fetch events as Arrow table."""
+        async with self._httpx_client() as client:
+            table = await _get_table(
+                client=client,
+                route=f"{self.warehouse_events_endpoint}/stream/arrow",
+                query=query,
+                headers=self._get_auth_headers(),
+                store_type=query_engine,
+                extra_params=extra_params,
+            )
+        return table
+
+    async def _fetch_event_types_arrow(
+        self,
+        query: EventTypesQuery,
+        query_engine: QueryEngine = "auto",
+    ) -> pa.Table:
+        """Internal async method to fetch event types as Arrow table."""
+        async with self._httpx_client() as client:
+            table = await _get_table(
+                client=client,
+                route=self.warehouse_event_types_endpoint,
                 query=query,
                 headers=self._get_auth_headers(),
                 store_type=query_engine,
@@ -522,18 +565,113 @@ class ERWarehouseClient(BaseModel):
         include_details: bool = False,
         include_updates: bool = False,
         include_related_events: bool = False,
+        *,
+        parse_detail_datetimes: bool = False,
+        invalid_details: Literal["drop", "coerce"] | None = None,
+        invalid_only: bool = False,
+        query_engine: QueryEngine | None = None,
     ) -> pa.Table:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_events is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
+        """Get events from the EarthRanger Data Warehouse.
+
+        Args:
+            since: Start of time range (ISO 8601 format). Required.
+            until: End of time range (ISO 8601 format). Required.
+            event_type: List of event type values to filter by.
+            drop_null_geometry: If True, exclude events without geometry. Maps to
+                the API's ``include_null_geometry`` (inverse).
+            include_details: Whether to request the ``event_details`` payload as a
+                typed struct. The typed struct is only served when exactly one
+                ``event_type`` is requested; otherwise (zero or multiple event
+                types, or when details are not wanted) ``event_details`` is a flat
+                JSON string.
+            include_updates: Unsupported; raises NotImplementedError.
+            include_related_events: Unsupported; raises NotImplementedError.
+            parse_detail_datetimes: In typed mode, best-effort parse of datetime
+                strings inside ``event_details``. Requires exactly one event_type.
+            invalid_details: In typed mode, how to handle ``event_details`` that
+                fail schema validation: ``"drop"`` to drop the offending values,
+                ``"coerce"`` to coerce them.
+            invalid_only: In typed mode, return only rows whose ``event_details``
+                fail schema validation. Requires exactly one event_type.
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            PyArrow Table with events data. Schema: EVENTS_SCHEMA_V1.
+
+        Raises:
+            NotImplementedError: If ``include_updates`` or
+                ``include_related_events`` is requested; the warehouse does not
+                serve event updates or related events.
+            ValueError: If ``parse_detail_datetimes``/``invalid_only`` are
+                requested without exactly one event_type (typed mode).
+        """
+        if include_updates or include_related_events:
+            raise NotImplementedError(
+                "include_updates and include_related_events are not supported by "
+                "the Data Warehouse API; event updates and related events are not "
+                "served."
+            )
+
+        event_type = list(event_type or [])
+        n = len(event_type)
+
+        if (parse_detail_datetimes or invalid_only) and n != 1:
+            raise ValueError(
+                "parse_detail_datetimes and invalid_only require exactly one "
+                "event_type (typed mode)"
+            )
+
+        use_typed = (
+            include_details or parse_detail_datetimes or invalid_only
+        ) and n == 1
+
+        # since/until are optional and may be half-bounded, matching the API,
+        # EventsQuery, and EarthRangerIO.get_events; an omitted bound is dropped
+        # from the query params.
+        query = EventsQuery(
+            tenant_domain=self.server,
+            range_start=datetime.fromisoformat(since) if since else None,
+            range_end=datetime.fromisoformat(until) if until else None,
+            event_type=event_type or None,
+            include_null_geometry=not drop_null_geometry,
         )
 
-    def get_event_types(self) -> Any:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_event_types is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
+        extra: dict[str, Any] = {}
+        if not use_typed:
+            extra["raw_details"] = True
+        else:
+            if parse_detail_datetimes:
+                extra["parse_detail_datetimes"] = True
+            if invalid_only:
+                extra["invalid_only"] = True
+            if invalid_details is not None:
+                extra["invalid_details"] = invalid_details
+
+        engine = query_engine or self.query_engine
+        return self._run_async(
+            self._fetch_events_arrow(query, extra_params=extra, query_engine=engine)
+        )
+
+    def get_event_types(self, query_engine: QueryEngine | None = None) -> pa.Table:
+        """Get event types from the EarthRanger Data Warehouse.
+
+        Implements the ecoscope ``get_event_types`` contract: the returned table
+        provides the ``value`` -> ``display`` mapping used to resolve event type
+        display names.
+
+        Args:
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            PyArrow Table with event types. Schema: EVENT_TYPES_SCHEMA_V1
+            (id, value, display, category_value, is_active, is_collection).
+        """
+        engine = query_engine or self.query_engine
+        query = EventTypesQuery(tenant_domain=self.server)
+        return self._run_async(
+            self._fetch_event_types_arrow(query, query_engine=engine)
         )
 
     def get_event_type_display_names_from_events(
@@ -541,8 +679,74 @@ class ERWarehouseClient(BaseModel):
         events_gdf: Any,
         append_category_names: str = "duplicates",
     ) -> Any:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_event_type_display_names_from_events is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
+        """Append an ``event_type_display`` column to an events DataFrame.
+
+        This takes an ecoscope-style events DataFrame whose event type column is
+        named ``event_type`` (NOT a raw warehouse events table, whose column is
+        ``event_type_value``).
+
+        Event types present on events but missing from the warehouse event-type
+        listing (e.g. deleted/orphan types still attached to historical events)
+        fall back to their raw ``event_type`` value as the display, rather than
+        raising.
+
+        Note:
+            The warehouse ``/event_types`` listing exposes ``category_value`` (the
+            category slug) but does not serve a category *display* name. When
+            ``append_category_names`` triggers an append, the appended label is the
+            category *value* (slug), not a display name, in the ER
+            "Type (Category)" format.
+
+        Args:
+            events_gdf: A pandas/geopandas DataFrame with an ``event_type`` column.
+            append_category_names: One of ``"always"``, ``"duplicates"`` (default),
+                or ``"never"``. ``"always"`` appends the category value for all
+                rows; ``"duplicates"`` appends only where display names collide;
+                ``"never"`` does not append.
+
+        Returns:
+            The DataFrame with an added ``event_type_display`` column.
+        """
+        if "event_type" not in events_gdf.columns:
+            raise KeyError(
+                "events_gdf must have an 'event_type' column "
+                "(ecoscope-style events DataFrame)"
+            )
+
+        event_types = self.get_event_types().to_pandas()
+        display_lookup = dict(zip(event_types["value"], event_types["display"]))
+        events_gdf["event_type_display"] = (
+            events_gdf["event_type"]
+            .map(display_lookup)
+            .fillna(events_gdf["event_type"])
         )
+
+        if append_category_names == "never":
+            return events_gdf
+
+        category_lookup = dict(zip(event_types["value"], event_types["category_value"]))
+
+        if append_category_names == "always":
+            mask = events_gdf["event_type"].notna()
+        elif append_category_names == "duplicates":
+            mask = (
+                events_gdf.groupby("event_type_display")["event_type"].transform(
+                    "nunique"
+                )
+                > 1
+            )
+        else:
+            return events_gdf
+
+        category_value = events_gdf.loc[mask, "event_type"].map(category_lookup)
+        # Only append where a category_value exists; orphan/category-less types
+        # keep their plain display (concatenating a NaN would wipe it out).
+        append_mask = category_value.notna()
+        rows = category_value.index[append_mask]
+        events_gdf.loc[rows, "event_type_display"] = (
+            events_gdf.loc[rows, "event_type_display"]
+            + " ("
+            + category_value[append_mask]
+            + ")"
+        )
+        return events_gdf

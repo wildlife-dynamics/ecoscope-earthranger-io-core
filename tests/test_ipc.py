@@ -11,6 +11,8 @@ from fastapi import FastAPI
 from httpx import AsyncClient, ASGITransport
 
 from ecoscope_earthranger_io_core.arrow import (
+    EVENT_TYPES_SCHEMA_V1,
+    EVENTS_SCHEMA_V1,
     OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
     OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1,
     PATROLS_NESTED_SCHEMA_V1,
@@ -475,7 +477,7 @@ def test_client_query_engine_per_request_overrides_client_default(
 
 
 def test_client_unsupported_methods_raise_not_implemented() -> None:
-    """Test that event-related methods raise NotImplementedError."""
+    """Test that get_patrol_events raises NotImplementedError."""
     er_client = ERWarehouseClient(
         server="some-site.pamdas.org",
         token="abc",
@@ -485,14 +487,292 @@ def test_client_unsupported_methods_raise_not_implemented() -> None:
     with pytest.raises(NotImplementedError):
         er_client.get_patrol_events()
 
-    with pytest.raises(NotImplementedError):
-        er_client.get_events()
+
+# -------------------------------------------------------------------------
+# Events tests
+# -------------------------------------------------------------------------
+
+
+def _events_mock_httpx_client(app: FastAPI):
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    return _mock_httpx_client
+
+
+def _capturing_mock_httpx_client(app: FastAPI, captured: dict):
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    return _mock_httpx_client
+
+
+def test_client_get_events(app: FastAPI) -> None:
+    """Typed events fetch returns a pa.Table with EVENTS_SCHEMA_V1 columns."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        table = er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["wildlife_sighting"],
+            include_details=True,
+        )
+    assert isinstance(table, pa.Table)
+    for col in EVENTS_SCHEMA_V1.names:
+        assert col in table.column_names, f"Missing expected column: {col}"
+    assert pa.types.is_struct(table.schema.field("reported_by").type)
+    assert pa.types.is_timestamp(table.schema.field("event_time").type)
+    reported_by = table.column("reported_by").to_pylist()
+    assert reported_by[0]["name"] == "Ranger A"
+
+
+def test_client_get_events_raw_multi_type(app: FastAPI) -> None:
+    """Multiple event types without include_details exercises the raw_details path."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    with patch.object(ERWarehouseClient, "_httpx_client", _mock_httpx_client):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        table = er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["a", "b"],
+        )
+    assert isinstance(table, pa.Table)
+    assert len(table) > 0
+    assert captured["params"]["raw_details"] is True
+
+
+def test_client_get_events_typed_path_params(app: FastAPI) -> None:
+    """Typed mode (one event_type) must NOT send raw_details; typed flags pass through."""
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["wildlife_sighting"],
+            include_details=True,
+        )
+    assert "raw_details" not in captured["params"]
+
+    captured.clear()
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["wildlife_sighting"],
+            parse_detail_datetimes=True,
+            invalid_only=True,
+        )
+    assert "raw_details" not in captured["params"]
+    assert captured["params"]["parse_detail_datetimes"] is True
+    assert captured["params"]["invalid_only"] is True
+
+
+def test_client_get_events_optional_time_range(app: FastAPI) -> None:
+    """since/until are optional (parity with the API and EarthRangerIO): an
+    omitted bound is dropped from the query params, and a fully-unbounded call
+    still works."""
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        # no since/until at all
+        table = er_client.get_events(event_type=["wildlife_sighting"])
+    assert isinstance(table, pa.Table)
+    assert "range_start" not in captured["params"]
+    assert "range_end" not in captured["params"]
+
+    # half-bounded (only since) is allowed too
+    captured.clear()
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(since="2015-01-01T00:00:00", event_type=["a", "b"])
+    assert "range_start" in captured["params"]
+    assert "range_end" not in captured["params"]
+
+
+def test_client_get_events_forwards_invalid_details(app: FastAPI) -> None:
+    """invalid_details='coerce' (typed mode) must reach the query params."""
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["wildlife_sighting"],
+            include_details=True,
+            invalid_details="coerce",
+        )
+    assert captured["params"]["invalid_details"] == "coerce"
+
+
+def test_client_get_events_rejects_unsupported() -> None:
+    """include_updates raises NotImplementedError; typed flags require one type."""
+    er_client = ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+        warehouse_base_url="http://test",
+    )
 
     with pytest.raises(NotImplementedError):
-        er_client.get_event_types()
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            include_updates=True,
+        )
 
     with pytest.raises(NotImplementedError):
-        er_client.get_event_type_display_names_from_events(events_gdf=None)
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            include_related_events=True,
+        )
+
+    with pytest.raises(ValueError):
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["a", "b"],
+            parse_detail_datetimes=True,
+        )
+
+
+def test_client_get_event_types(app: FastAPI) -> None:
+    """get_event_types returns a pa.Table with the 6 columns and 2 canned rows."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        table = er_client.get_event_types()
+    assert isinstance(table, pa.Table)
+    assert table.column_names == list(EVENT_TYPES_SCHEMA_V1.names)
+    assert len(table) == 2
+
+
+def test_client_get_event_type_display_names(app: FastAPI) -> None:
+    """Display-name resolution maps values to displays, orphans fall back to raw."""
+    import pandas as pd
+
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        df = pd.DataFrame(
+            {"event_type": ["wildlife_sighting", "poaching", "orphan_type"]}
+        )
+        result = er_client.get_event_type_display_names_from_events(df)
+    assert list(result["event_type_display"]) == [
+        "Wildlife Sighting",
+        "Poaching",
+        "orphan_type",
+    ]
+
+
+def test_client_get_event_type_display_names_always_with_orphan(app: FastAPI) -> None:
+    """append_category_names='always': known types get the category value appended;
+    orphans (no category_value) keep their raw-value display, not NaN."""
+    import pandas as pd
+
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        df = pd.DataFrame(
+            {"event_type": ["wildlife_sighting", "poaching", "orphan_type"]}
+        )
+        result = er_client.get_event_type_display_names_from_events(
+            df, append_category_names="always"
+        )
+    assert list(result["event_type_display"]) == [
+        "Wildlife Sighting (monitoring)",
+        "Poaching (security)",
+        "orphan_type",
+    ]
 
 
 # -------------------------------------------------------------------------

@@ -1,9 +1,14 @@
+from datetime import datetime, timezone
+from typing import Literal
+
 import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pyarrow as pa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from ecoscope_earthranger_io_core.arrow import (
+    EVENT_TYPES_SCHEMA_V1,
+    EVENTS_SCHEMA_V1,
     OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1,
     PATROLS_NESTED_SCHEMA_V1,
     TRANSFORMS,
@@ -11,6 +16,8 @@ from ecoscope_earthranger_io_core.arrow import (
     TransformSpec,
 )
 from ecoscope_earthranger_io_core.query import (
+    EventsQuery,
+    EventTypesQuery,
     ObservationsQuery,
     PatrolsQuery,
     QueryEngine,
@@ -180,3 +187,146 @@ async def get_patrols_streaming_arrow(
 
 
 app.include_router(patrols)
+
+# Events router
+events = APIRouter(prefix="/events")
+
+
+def _build_events_record_batch() -> pa.RecordBatch:
+    """Build a small canned events RecordBatch conforming to EVENTS_SCHEMA_V1."""
+    geometry = ga.as_wkb(["POINT (0 1)", "POINT (2 3)"])
+    rows = [
+        {
+            "id": "event1",
+            "serial_number": 1,
+            "event_type_id": "et1",
+            "event_type_value": "wildlife_sighting",
+            "event_category_value": "monitoring",
+            "title": "Elephant",
+            "state": "active",
+            "priority": 0,
+            "event_time": datetime(2015, 1, 1, 12, 0, tzinfo=timezone.utc),
+            "end_time": datetime(2015, 1, 1, 13, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2015, 1, 1, 12, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2015, 1, 1, 12, 0, tzinfo=timezone.utc),
+            "is_collection": False,
+            "reported_by": {"id": "u1", "name": "Ranger A", "type": "user"},
+            "event_details": '{"species": "elephant"}',
+            "das_tenant_id": "tenant1",
+        },
+        {
+            "id": "event2",
+            "serial_number": 2,
+            "event_type_id": "et2",
+            "event_type_value": "poaching",
+            "event_category_value": "security",
+            "title": "Snare",
+            "state": "active",
+            "priority": 100,
+            "event_time": datetime(2015, 2, 1, 9, 0, tzinfo=timezone.utc),
+            "end_time": datetime(2015, 2, 1, 10, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2015, 2, 1, 9, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2015, 2, 1, 9, 0, tzinfo=timezone.utc),
+            "is_collection": False,
+            "reported_by": {"id": "s1", "name": "Subject B", "type": "subject"},
+            "event_details": '{"count": 1}',
+            "das_tenant_id": "tenant1",
+        },
+    ]
+    arrays = []
+    for field in EVENTS_SCHEMA_V1:
+        if field.name == "geometry":
+            arrays.append(geometry)
+        else:
+            arrays.append(pa.array([r[field.name] for r in rows], type=field.type))
+    return pa.RecordBatch.from_arrays(arrays, schema=EVENTS_SCHEMA_V1)
+
+
+@events.get("/stream/arrow")
+async def get_events_streaming_arrow(
+    query: EventsQuery = Depends(EventsQuery.from_query_params),
+    store_type: QueryEngine | None = Query(None),
+    raw_details: bool = Query(False),
+    parse_detail_datetimes: bool = Query(False),
+    invalid_only: bool = Query(False),
+    invalid_details: Literal["drop", "coerce"] | None = Query(None),
+):
+    """Stream events as an Arrow IPC stream."""
+
+    def generate_arrow_bytes():
+        sink = pa.BufferOutputStream()
+        writer = pa.ipc.new_stream(sink, EVENTS_SCHEMA_V1)
+        try:
+            writer.write_batch(_build_events_record_batch())
+        finally:
+            writer.close()
+        yield sink.getvalue().to_pybytes()
+
+    try:
+        return StreamingResponse(
+            generate_arrow_bytes(),
+            media_type="application/vnd.apache.arrow.stream",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
+
+
+app.include_router(events)
+
+# Event types router
+event_types = APIRouter()
+
+
+def _build_event_types_record_batch() -> pa.RecordBatch:
+    """Build a canned event types RecordBatch conforming to EVENT_TYPES_SCHEMA_V1."""
+    rows = [
+        {
+            "id": "et1",
+            "value": "wildlife_sighting",
+            "display": "Wildlife Sighting",
+            "category_value": "monitoring",
+            "is_active": True,
+            "is_collection": False,
+        },
+        {
+            "id": "et2",
+            "value": "poaching",
+            "display": "Poaching",
+            "category_value": "security",
+            "is_active": True,
+            "is_collection": False,
+        },
+    ]
+    arrays = [
+        pa.array([r[field.name] for r in rows], type=field.type)
+        for field in EVENT_TYPES_SCHEMA_V1
+    ]
+    return pa.RecordBatch.from_arrays(arrays, schema=EVENT_TYPES_SCHEMA_V1)
+
+
+@event_types.get("/event_types")
+async def get_event_types_streaming_arrow(
+    query: EventTypesQuery = Depends(EventTypesQuery.from_query_params),
+    store_type: QueryEngine | None = Query(None),
+):
+    """Stream event types as an Arrow IPC stream."""
+
+    def generate_arrow_bytes():
+        sink = pa.BufferOutputStream()
+        writer = pa.ipc.new_stream(sink, EVENT_TYPES_SCHEMA_V1)
+        try:
+            writer.write_batch(_build_event_types_record_batch())
+        finally:
+            writer.close()
+        yield sink.getvalue().to_pybytes()
+
+    try:
+        return StreamingResponse(
+            generate_arrow_bytes(),
+            media_type="application/vnd.apache.arrow.stream",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
+
+
+app.include_router(event_types)

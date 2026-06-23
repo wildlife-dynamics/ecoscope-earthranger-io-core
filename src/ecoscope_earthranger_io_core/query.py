@@ -154,6 +154,16 @@ class EventsQuery(_WarehouseQuery):
         )
 
 
+class EventTypesQuery(BaseModel):
+    """Query for the warehouse /event_types listing (tenant-scoped)."""
+
+    tenant_domain: str
+
+    @classmethod
+    def from_query_params(cls, tenant_domain: str = Query(...)) -> "EventTypesQuery":
+        return cls(tenant_domain=tenant_domain)
+
+
 class EventTypeSchemaQuery(BaseModel):
     """Lookup for a single event type's ``event_details`` schema.
 
