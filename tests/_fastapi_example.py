@@ -4,7 +4,7 @@ from typing import Literal
 import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pyarrow as pa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ecoscope_earthranger_io_core.arrow import (
     EVENT_TYPES_SCHEMA_V1,
@@ -17,6 +17,7 @@ from ecoscope_earthranger_io_core.arrow import (
 )
 from ecoscope_earthranger_io_core.query import (
     EventsQuery,
+    EventTypeSchemaQuery,
     EventTypesQuery,
     ObservationsQuery,
     PatrolsQuery,
@@ -269,6 +270,33 @@ async def get_events_streaming_arrow(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
+
+
+def _canned_event_details_struct(parse_detail_datetimes: bool) -> pa.StructType:
+    """A canned event_details struct; a date-time leaf becomes typed when the
+    datetime opt-in is set (mirrors the real /events/schema behavior)."""
+    when_type = pa.timestamp("ns", tz="UTC") if parse_detail_datetimes else pa.string()
+    return pa.struct(
+        [("species", pa.string()), ("count", pa.int64()), ("seen_at", when_type)]
+    )
+
+
+@events.get("/schema")
+async def get_event_type_schema(
+    query: EventTypeSchemaQuery = Depends(EventTypeSchemaQuery.from_query_params),
+    store_type: QueryEngine | None = Query(None),
+    parse_detail_datetimes: bool = Query(False),
+    format: Literal["arrow", "json"] = Query("arrow"),
+):
+    """Return the event_details struct schema (Arrow schema message or JSON)."""
+    details_struct = _canned_event_details_struct(parse_detail_datetimes)
+    schema = pa.schema([("event_details", details_struct)])
+    if format == "json":
+        return JSONResponse({f.name: str(f.type) for f in details_struct})
+    return Response(
+        content=schema.serialize().to_pybytes(),
+        media_type="application/vnd.apache.arrow.schema",
+    )
 
 
 app.include_router(events)

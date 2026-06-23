@@ -15,6 +15,7 @@ from pydantic import BaseModel, PrivateAttr, SecretStr, field_validator
 
 from ecoscope_earthranger_io_core.query import (
     EventsQuery,
+    EventTypeSchemaQuery,
     EventTypesQuery,
     ObservationsQuery,
     PatrolsQuery,
@@ -333,6 +334,37 @@ class ERWarehouseClient(BaseModel):
                 store_type=query_engine,
             )
         return table
+
+    async def _fetch_event_schema(
+        self,
+        query: EventTypeSchemaQuery,
+        *,
+        parse_detail_datetimes: bool,
+        fmt: Literal["arrow", "json"],
+        query_engine: QueryEngine = "auto",
+    ) -> "pa.Schema | dict[str, str]":
+        """Fetch the event_details schema from the /events/schema endpoint.
+
+        Unlike the streaming endpoints, /events/schema returns a bare Arrow
+        *schema message* (read with ``pa.ipc.read_schema``), not an IPC stream,
+        or — with ``fmt="json"`` — an informational ``{field: type_str}`` mapping.
+        """
+        params = query.model_dump(exclude_none=True)
+        params["store_type"] = query_engine
+        params["format"] = fmt
+        if parse_detail_datetimes:
+            params["parse_detail_datetimes"] = True
+        async with self._httpx_client() as client:
+            response = await client.get(
+                f"{self.warehouse_events_endpoint}/schema",
+                params=params,
+                headers=self._get_auth_headers(),
+                timeout=600,
+            )
+            response.raise_for_status()
+            if fmt == "json":
+                return response.json()
+            return pa.ipc.read_schema(pa.py_buffer(response.content))
 
     def _run_async(self, coro):
         """Run an async coroutine synchronously.
@@ -672,6 +704,49 @@ class ERWarehouseClient(BaseModel):
         query = EventTypesQuery(tenant_domain=self.server)
         return self._run_async(
             self._fetch_event_types_arrow(query, query_engine=engine)
+        )
+
+    def get_event_schema(
+        self,
+        event_type: str,
+        *,
+        parse_detail_datetimes: bool = False,
+        format: Literal["arrow", "json"] = "arrow",
+        query_engine: QueryEngine | None = None,
+    ) -> "pa.Schema | dict[str, str]":
+        """Discover the typed ``event_details`` schema for one event type.
+
+        Reads the warehouse ``/events/schema`` discovery endpoint, which serves
+        exactly one event type. This is a convenience for introspecting the
+        ``event_details`` struct shape ahead of streaming; the same struct is
+        embedded in ``/events/stream/arrow`` responses in typed mode, so this
+        call is not required to consume events.
+
+        Args:
+            event_type: The single event type value (slug) or UUID to discover.
+            parse_detail_datetimes: If True, return the datetime-typed variant
+                (JSON-Schema ``date-time`` -> ``timestamp(ns, UTC)``, ``date`` ->
+                ``date32``), matching what ``/events/stream/arrow`` emits for the
+                same flag.
+            format: ``"arrow"`` (default) returns a ``pa.Schema`` whose
+                ``event_details`` field is the derived struct; ``"json"`` returns
+                an informational ``{field: type_str}`` mapping.
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            A ``pa.Schema`` (format="arrow") or a ``dict[str, str]``
+            (format="json").
+        """
+        engine = query_engine or self.query_engine
+        query = EventTypeSchemaQuery(tenant_domain=self.server, event_type=event_type)
+        return self._run_async(
+            self._fetch_event_schema(
+                query,
+                parse_detail_datetimes=parse_detail_datetimes,
+                fmt=format,
+                query_engine=engine,
+            )
         )
 
     def get_event_type_display_names_from_events(

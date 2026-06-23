@@ -726,6 +726,59 @@ def test_client_get_event_types(app: FastAPI) -> None:
     assert len(table) == 2
 
 
+def test_client_get_event_schema_arrow(app: FastAPI) -> None:
+    """get_event_schema (default arrow) returns a pa.Schema whose event_details
+    is the derived struct."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        schema = er_client.get_event_schema("wildlife_sighting")
+    assert isinstance(schema, pa.Schema)
+    details = schema.field("event_details").type
+    assert pa.types.is_struct(details)
+    names = {details.field(i).name for i in range(details.num_fields)}
+    assert names == {"species", "count", "seen_at"}
+    # default (no parse_detail_datetimes) -> the date-time leaf stays a string
+    assert details.field("seen_at").type == pa.string()
+
+
+def test_client_get_event_schema_parse_datetimes(app: FastAPI) -> None:
+    """parse_detail_datetimes types the date-time leaf as timestamp[ns, UTC]."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        schema = er_client.get_event_schema(
+            "wildlife_sighting", parse_detail_datetimes=True
+        )
+    details = schema.field("event_details").type
+    assert details.field("seen_at").type == pa.timestamp("ns", tz="UTC")
+
+
+def test_client_get_event_schema_json(app: FastAPI) -> None:
+    """format="json" returns an informational {field: type_str} mapping."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        result = er_client.get_event_schema("wildlife_sighting", format="json")
+    assert isinstance(result, dict)
+    assert set(result) == {"species", "count", "seen_at"}
+
+
 def test_client_get_event_type_display_names(app: FastAPI) -> None:
     """Display-name resolution maps values to displays, orphans fall back to raw."""
     import pandas as pd
