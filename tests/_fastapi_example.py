@@ -307,12 +307,13 @@ def _build_events_record_batch() -> pa.RecordBatch:
 async def get_events_streaming_arrow(
     query: EventsQuery = Depends(EventsQuery.from_query_params),
     store_type: QueryEngine | None = Query(None),
-    raw_details: bool = Query(False),
-    parse_detail_datetimes: bool = Query(False),
-    invalid_only: bool = Query(False),
-    invalid_details: Literal["drop", "coerce"] | None = Query(None),
 ):
-    """Stream events as an Arrow IPC stream."""
+    """Stream events as an Arrow IPC stream.
+
+    The detail-shaping options (raw_details / parse_detail_datetimes /
+    invalid_only / invalid_details / include_details) are fields on EventsQuery;
+    this canned fixture accepts them via the query model and ignores them.
+    """
 
     def generate_arrow_bytes():
         sink = pa.BufferOutputStream()

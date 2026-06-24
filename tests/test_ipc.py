@@ -680,7 +680,8 @@ def test_client_get_events_raw_multi_type(app: FastAPI) -> None:
     assert isinstance(table, pa.Table)
     assert len(table) > 0
     assert captured["params"]["raw_details"] is True
-    assert "include_details" not in captured["params"]
+    # raw details are still details, so the payload is included
+    assert captured["params"]["include_details"] is True
 
 
 def test_client_get_events_no_details_default(app: FastAPI) -> None:
@@ -701,7 +702,7 @@ def test_client_get_events_no_details_default(app: FastAPI) -> None:
             event_type=["a", "b"],
         )
     assert captured["params"]["include_details"] is False
-    assert "raw_details" not in captured["params"]
+    assert captured["params"]["raw_details"] is False
 
 
 def test_client_get_events_typed_path_params(app: FastAPI) -> None:
@@ -721,7 +722,8 @@ def test_client_get_events_typed_path_params(app: FastAPI) -> None:
             event_type=["wildlife_sighting"],
             include_details=True,
         )
-    assert "raw_details" not in captured["params"]
+    assert captured["params"]["include_details"] is True
+    assert captured["params"]["raw_details"] is False
 
     captured.clear()
     with patch.object(
@@ -739,7 +741,7 @@ def test_client_get_events_typed_path_params(app: FastAPI) -> None:
             parse_detail_datetimes=True,
             invalid_only=True,
         )
-    assert "raw_details" not in captured["params"]
+    assert captured["params"]["raw_details"] is False
     assert captured["params"]["parse_detail_datetimes"] is True
     assert captured["params"]["invalid_only"] is True
 
@@ -888,7 +890,7 @@ def test_client_get_events_include_and_raw_details_compose(app: FastAPI) -> None
             raw_details=True,
         )
     assert captured["params"]["raw_details"] is True
-    assert "include_details" not in captured["params"]
+    assert captured["params"]["include_details"] is True
 
 
 def test_client_get_events_invalid_details_triggers_typed_mode(app: FastAPI) -> None:
@@ -910,7 +912,8 @@ def test_client_get_events_invalid_details_triggers_typed_mode(app: FastAPI) -> 
             invalid_details="drop",
         )
     assert captured["params"]["invalid_details"] == "drop"
-    assert "raw_details" not in captured["params"]
+    assert captured["params"]["raw_details"] is False
+    assert captured["params"]["include_details"] is True
 
 
 def test_client_get_event_types(app: FastAPI) -> None:

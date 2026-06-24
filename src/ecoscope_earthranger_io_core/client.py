@@ -335,7 +335,6 @@ class ERWarehouseClient(BaseModel):
     async def _fetch_events_arrow(
         self,
         query: EventsQuery,
-        extra_params: dict | None = None,
         query_engine: QueryEngine = "auto",
     ) -> pa.Table:
         """Internal async method to fetch events as Arrow table."""
@@ -346,7 +345,6 @@ class ERWarehouseClient(BaseModel):
                 query=query,
                 headers=self._get_auth_headers(),
                 store_type=query_engine,
-                extra_params=extra_params,
             )
         return table
 
@@ -791,32 +789,24 @@ class ERWarehouseClient(BaseModel):
 
         # since/until are optional and may be half-bounded, matching the API,
         # EventsQuery, and EarthRangerIO.get_events; an omitted bound is dropped
-        # from the query params.
+        # from the query params. The detail-shaping options are fields on the
+        # shared EventsQuery (single source of truth): event_details is included
+        # when typed OR raw; raw_details picks the flat-JSON format.
         query = EventsQuery(
             tenant_domain=self.server,
             range_start=datetime.fromisoformat(since) if since else None,
             range_end=datetime.fromisoformat(until) if until else None,
             event_type=event_type or None,
             include_null_geometry=not drop_null_geometry,
+            include_details=want_typed or raw_details,
+            raw_details=raw_details,
+            parse_detail_datetimes=parse_detail_datetimes,
+            invalid_only=invalid_only,
+            invalid_details=invalid_details or "drop",
         )
-
-        extra: dict[str, Any] = {}
-        if want_typed:  # typed struct (the API's raw_details=False default)
-            if parse_detail_datetimes:
-                extra["parse_detail_datetimes"] = True
-            if invalid_only:
-                extra["invalid_only"] = True
-            if invalid_details is not None:
-                extra["invalid_details"] = invalid_details
-        elif raw_details:  # raw JSON details (include_details + raw_details too)
-            extra["raw_details"] = True
-        else:  # omit the event_details payload entirely
-            extra["include_details"] = False
 
         engine = query_engine or self.query_engine
-        return self._run_async(
-            self._fetch_events_arrow(query, extra_params=extra, query_engine=engine)
-        )
+        return self._run_async(self._fetch_events_arrow(query, query_engine=engine))
 
     def get_event_types(self, query_engine: QueryEngine | None = None) -> pa.Table:
         """Get event types from the EarthRanger Data Warehouse.
