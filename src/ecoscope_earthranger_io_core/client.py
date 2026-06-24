@@ -720,11 +720,13 @@ class ERWarehouseClient(BaseModel):
             events_df = events_df.dropna(subset="geometry").reset_index(drop=True)
         events_df = events_df.dropna(subset="time").reset_index(drop=True)
         # tz-aware UTC datetimes for the time columns (parity with clean_time_cols).
+        # Force ns resolution: newer pandas parses ISO strings as us, but
+        # ecoscope's EventGDFSchema requires datetime64[ns] (tz-aware).
         for col in ("time", "created_at", "updated_at", "patrol_start_time"):
             if col in events_df.columns:
                 events_df[col] = pd.to_datetime(
                     events_df[col], utc=True, errors="coerce"
-                )
+                ).dt.as_unit("ns")
 
         return gpd.GeoDataFrame(events_df, geometry="geometry", crs=4326)
 
