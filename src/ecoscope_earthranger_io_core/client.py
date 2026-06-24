@@ -574,16 +574,10 @@ class ERWarehouseClient(BaseModel):
         """Get patrols with their events from the EarthRanger Data Warehouse.
 
         Returns patrols with events nested under each patrol segment at
-        ``patrol_segments[].events[]``. Each event carries a synthesized
-        ``geojson`` (``{"type": "Feature", "geometry": ..., "properties":
-        {"datetime": ...}}``) derived from the event's WKB ``geometry`` and its
-        ``event_time``, so the result is the ER-native shape consumed by
-        ecoscope's ``unpack_events_from_patrols_df`` (which reads each event's
-        ``geojson`` to build the events GeoDataFrame geometry and time).
-
-        ``event_details``, ``reported_by``, and ``event_category`` are present in
-        the event struct but are intentionally not required by the patrols
-        workflow; only the geometry and time (via ``geojson``) are needed.
+        ``patrol_segments[].events[]``, in the ER-native shape. Each event
+        carries a synthesized ``geojson`` (``{"type": "Feature", "geometry":
+        ..., "properties": {"datetime": ...}}``) derived from the event's WKB
+        ``geometry`` and its ``event_time``.
 
         Args:
             since: Start of time range (ISO 8601 format). Optional.
@@ -619,23 +613,19 @@ class ERWarehouseClient(BaseModel):
         table = self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
         df = table.to_pandas()
 
-        for segments in df.get("patrol_segments", pd.Series(dtype=object)):
-            if segments is None:
-                continue
-            for segment in segments:
-                if not isinstance(segment, dict):
-                    continue
+        # to_pandas() surfaces a null list as None and a present list as a numpy
+        # array, so guard with `is not None` (truthiness on an array is
+        # ambiguous) rather than `or ()`.
+        for segments in df["patrol_segments"]:
+            for segment in segments if segments is not None else ():
                 events = segment.get("events")
-                if events is None:
-                    continue
-                for event in events:
-                    if isinstance(event, dict):
-                        _synthesize_event_geojson(
-                            event,
-                            pd=pd,
-                            shapely_geometry=shapely.geometry,
-                            shapely_wkb=shapely.wkb,
-                        )
+                for event in events if events is not None else ():
+                    _synthesize_event_geojson(
+                        event,
+                        pd=pd,
+                        shapely_geometry=shapely.geometry,
+                        shapely_wkb=shapely.wkb,
+                    )
 
         return df
 
@@ -692,10 +682,12 @@ class ERWarehouseClient(BaseModel):
         drop_null_geometry: bool = False,
         sub_page_size: int | None = None,
     ) -> pa.Table:
-        """Not implemented - events not yet supported by the Data Warehouse."""
+        """Not implemented. Patrol events are served nested under their patrol
+        segments via ``get_patrols``; use that instead."""
         raise NotImplementedError(
-            "get_patrol_events is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
+            "get_patrol_events is not implemented in ERWarehouseClient. "
+            "Patrol events are returned nested under patrol segments by "
+            "get_patrols."
         )
 
     def get_events(
@@ -716,8 +708,8 @@ class ERWarehouseClient(BaseModel):
         """Get events from the EarthRanger Data Warehouse.
 
         Args:
-            since: Start of time range (ISO 8601 format). Required.
-            until: End of time range (ISO 8601 format). Required.
+            since: Start of time range (ISO 8601 format). Optional.
+            until: End of time range (ISO 8601 format). Optional.
             event_type: List of event type values to filter by.
             drop_null_geometry: If True, exclude events without geometry. Maps to
                 the API's ``include_null_geometry`` (inverse).
@@ -798,9 +790,8 @@ class ERWarehouseClient(BaseModel):
     def get_event_types(self, query_engine: QueryEngine | None = None) -> pa.Table:
         """Get event types from the EarthRanger Data Warehouse.
 
-        Implements the ecoscope ``get_event_types`` contract: the returned table
-        provides the ``value`` -> ``display`` mapping used to resolve event type
-        display names.
+        The returned table provides the ``value`` -> ``display`` mapping used to
+        resolve event type display names.
 
         Args:
             query_engine: Backend engine to use. Defaults to the client-level
@@ -866,8 +857,8 @@ class ERWarehouseClient(BaseModel):
     ) -> Any:
         """Append an ``event_type_display`` column to an events DataFrame.
 
-        This takes an ecoscope-style events DataFrame whose event type column is
-        named ``event_type`` (NOT a raw warehouse events table, whose column is
+        Operates on an events DataFrame whose event type column is named
+        ``event_type`` (NOT a raw warehouse events table, whose column is
         ``event_type_value``).
 
         Event types present on events but missing from the warehouse event-type
@@ -893,10 +884,7 @@ class ERWarehouseClient(BaseModel):
             The DataFrame with an added ``event_type_display`` column.
         """
         if "event_type" not in events_gdf.columns:
-            raise KeyError(
-                "events_gdf must have an 'event_type' column "
-                "(ecoscope-style events DataFrame)"
-            )
+            raise KeyError("events_gdf must have an 'event_type' column")
 
         event_types = self.get_event_types().to_pandas()
         display_lookup = dict(zip(event_types["value"], event_types["display"]))
