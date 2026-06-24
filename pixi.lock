@@ -11570,8 +11570,10 @@ packages:
   - pydantic>=2.0.0,<3
   - fastapi ; extra == 'test'
   - httpx ; extra == 'test'
+  - pandas ; extra == 'test'
   - pytest ; extra == 'test'
   - pytest-asyncio ; extra == 'test'
+  - shapely ; extra == 'test'
   requires_python: '>=3.10,<3.13'
 - pypi: https://files.pythonhosted.org/packages/16/0f/a07e652433c0df2fcf5407a785368d37a19397579289adec8c1258682d89/types_shapely-2.1.0.20250512-py3-none-any.whl
   name: types-shapely

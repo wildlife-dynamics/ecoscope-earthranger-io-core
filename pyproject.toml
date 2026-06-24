@@ -31,6 +31,10 @@ test = [
     "pytest",
     "pytest-asyncio",
     "httpx",
+    # client-side methods (get_patrols, display-name resolution) lazy-import
+    # these; the pip test path has no geopandas, so declare them explicitly
+    "pandas",
+    "shapely",
 ]
 
 [tool.pixi.dependencies]
