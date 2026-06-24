@@ -301,7 +301,7 @@ def test_synthesize_event_geojson_int64_event_time() -> None:
 
     # 2015-01-01T12:00:00Z expressed as nanoseconds since the epoch.
     ns = int(pd.Timestamp("2015-01-01T12:00:00", tz="UTC").value)
-    event = {
+    event: dict = {
         "geometry": shapely.wkb.dumps(shapely.geometry.Point(0.0, 1.0)),
         "event_time": ns,
     }
@@ -313,8 +313,9 @@ def test_synthesize_event_geojson_int64_event_time() -> None:
     )
     datetime_str = event["geojson"]["properties"]["datetime"]
     parsed = datetime.fromisoformat(datetime_str)
-    assert parsed.utcoffset() is not None  # tz-aware
-    assert parsed.utcoffset().total_seconds() == 0  # UTC
+    offset = parsed.utcoffset()
+    assert offset is not None  # tz-aware
+    assert offset.total_seconds() == 0  # UTC
     assert event["geojson"]["geometry"]["type"] == "Point"
 
 
@@ -640,7 +641,9 @@ def test_client_get_events(app: FastAPI) -> None:
     assert pa.types.is_struct(table.schema.field("reported_by").type)
     assert pa.types.is_timestamp(table.schema.field("event_time").type)
     reported_by = table.column("reported_by").to_pylist()
-    assert reported_by[0]["name"] == "Ranger A"
+    first = reported_by[0]
+    assert first is not None
+    assert first["name"] == "Ranger A"
 
 
 def test_client_get_events_raw_multi_type(app: FastAPI) -> None:
@@ -854,6 +857,7 @@ def test_client_get_event_schema_parse_datetimes(app: FastAPI) -> None:
         schema = er_client.get_event_schema(
             "wildlife_sighting", parse_detail_datetimes=True
         )
+    assert isinstance(schema, pa.Schema)
     details = schema.field("event_details").type
     assert details.field("seen_at").type == pa.timestamp("ns", tz="UTC")
 

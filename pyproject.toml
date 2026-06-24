@@ -31,10 +31,6 @@ test = [
     "pytest",
     "pytest-asyncio",
     "httpx",
-    # client-side methods (get_patrols, display-name resolution) lazy-import
-    # these; required to exercise them under the pip test path
-    "pandas",
-    "shapely",
 ]
 
 [tool.pixi.dependencies]
