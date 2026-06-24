@@ -700,6 +700,7 @@ class ERWarehouseClient(BaseModel):
         include_updates: bool = False,
         include_related_events: bool = False,
         *,
+        raw_details: bool = False,
         parse_detail_datetimes: bool = False,
         invalid_details: Literal["drop", "coerce"] | None = None,
         invalid_only: bool = False,
@@ -713,13 +714,20 @@ class ERWarehouseClient(BaseModel):
             event_type: List of event type values to filter by.
             drop_null_geometry: If True, exclude events without geometry. Maps to
                 the API's ``include_null_geometry`` (inverse).
-            include_details: Whether to request the ``event_details`` payload as a
-                typed struct. The typed struct is only served when exactly one
-                ``event_type`` is requested; otherwise (zero or multiple event
-                types, or when details are not wanted) ``event_details`` is a flat
-                JSON string.
+            include_details: Include the ``event_details`` payload. When False
+                (default) it is omitted entirely. On its own (``raw_details``
+                False) it requests the typed struct derived from the event type's
+                schema, which requires exactly one ``event_type`` (raises
+                otherwise); it does NOT silently fall back to raw.
             include_updates: Unsupported; raises NotImplementedError.
             include_related_events: Unsupported; raises NotImplementedError.
+            raw_details: Format override — return ``event_details`` as a flat JSON
+                string (``EVENTS_SCHEMA_V1``) instead of the typed struct, which
+                works across any number of event types. Composes with
+                ``include_details`` (``include_details=True, raw_details=True`` is
+                a valid "include details, but raw" request) and may also be used
+                on its own. Mutually exclusive with the typed-detail options
+                below.
             parse_detail_datetimes: In typed mode, best-effort parse of datetime
                 strings inside ``event_details``. Requires exactly one event_type.
             invalid_details: In typed mode, how to handle ``event_details`` that
@@ -731,14 +739,20 @@ class ERWarehouseClient(BaseModel):
                 setting (``self.query_engine``).
 
         Returns:
-            PyArrow Table with events data. Schema: EVENTS_SCHEMA_V1.
+            PyArrow Table with events data. Schema: EVENTS_SCHEMA_V1
+            (``event_details`` is a typed struct in typed mode, a JSON string
+            with ``raw_details``, and null when details are omitted).
 
         Raises:
             NotImplementedError: If ``include_updates`` or
                 ``include_related_events`` is requested; the warehouse does not
                 serve event updates or related events.
-            ValueError: If ``parse_detail_datetimes``/``invalid_only`` are
-                requested without exactly one event_type (typed mode).
+            ValueError: If typed mode (``include_details`` /
+                ``parse_detail_datetimes`` / ``invalid_only`` /
+                ``invalid_details``, with ``raw_details`` False) is requested
+                without exactly one event_type; or if ``raw_details`` is combined
+                with ``parse_detail_datetimes`` / ``invalid_only`` /
+                ``invalid_details``.
         """
         if include_updates or include_related_events:
             raise NotImplementedError(
@@ -750,15 +764,30 @@ class ERWarehouseClient(BaseModel):
         event_type = list(event_type or [])
         n = len(event_type)
 
-        if (parse_detail_datetimes or invalid_only) and n != 1:
+        # parse_detail_datetimes/invalid_only/invalid_details configure the typed
+        # event_details struct, so they only make sense in typed mode.
+        typed_only = invalid_details or parse_detail_datetimes or invalid_only
+
+        if raw_details and typed_only:
             raise ValueError(
-                "parse_detail_datetimes and invalid_only require exactly one "
-                "event_type (typed mode)"
+                "raw_details cannot be combined with parse_detail_datetimes, "
+                "invalid_only, or invalid_details: those configure the typed "
+                "event_details struct, which raw_details opts out of."
             )
 
-        use_typed = (
-            include_details or parse_detail_datetimes or invalid_only
-        ) and n == 1
+        # raw_details is a format override: include_details + raw_details is a
+        # valid "include details, but as raw JSON" request. The typed struct is
+        # derived from a single event type's schema (heterogeneous types can't
+        # share one Arrow struct), so typed mode requires exactly one event_type.
+        want_typed = (include_details or typed_only) and not raw_details
+        if want_typed and n != 1:
+            raise ValueError(
+                "include_details (and parse_detail_datetimes / invalid_only / "
+                "invalid_details) require exactly one event_type, since the "
+                "typed event_details struct is derived from a single event "
+                "type's schema. Pass raw_details=True for raw JSON "
+                "event_details across multiple event types."
+            )
 
         # since/until are optional and may be half-bounded, matching the API,
         # EventsQuery, and EarthRangerIO.get_events; an omitted bound is dropped
@@ -772,15 +801,17 @@ class ERWarehouseClient(BaseModel):
         )
 
         extra: dict[str, Any] = {}
-        if not use_typed:
-            extra["raw_details"] = True
-        else:
+        if want_typed:  # typed struct (the API's raw_details=False default)
             if parse_detail_datetimes:
                 extra["parse_detail_datetimes"] = True
             if invalid_only:
                 extra["invalid_only"] = True
             if invalid_details is not None:
                 extra["invalid_details"] = invalid_details
+        elif raw_details:  # raw JSON details (include_details + raw_details too)
+            extra["raw_details"] = True
+        else:  # omit the event_details payload entirely
+            extra["include_details"] = False
 
         engine = query_engine or self.query_engine
         return self._run_async(

@@ -647,7 +647,7 @@ def test_client_get_events(app: FastAPI) -> None:
 
 
 def test_client_get_events_raw_multi_type(app: FastAPI) -> None:
-    """Multiple event types without include_details exercises the raw_details path."""
+    """raw_details=True streams the flat JSON form across multiple event types."""
     captured: dict = {}
 
     @asynccontextmanager
@@ -675,10 +675,33 @@ def test_client_get_events_raw_multi_type(app: FastAPI) -> None:
             since="2015-01-01T00:00:00",
             until="2015-03-01T00:00:00",
             event_type=["a", "b"],
+            raw_details=True,
         )
     assert isinstance(table, pa.Table)
     assert len(table) > 0
     assert captured["params"]["raw_details"] is True
+    assert "include_details" not in captured["params"]
+
+
+def test_client_get_events_no_details_default(app: FastAPI) -> None:
+    """Default (no include_details / raw_details / typed flags) omits the
+    event_details payload and works across multiple event types without error."""
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["a", "b"],
+        )
+    assert captured["params"]["include_details"] is False
+    assert "raw_details" not in captured["params"]
 
 
 def test_client_get_events_typed_path_params(app: FastAPI) -> None:
@@ -805,6 +828,89 @@ def test_client_get_events_rejects_unsupported() -> None:
             event_type=["a", "b"],
             parse_detail_datetimes=True,
         )
+
+    # invalid_details is typed-only too: it must reject multiple event types
+    # rather than being silently dropped.
+    with pytest.raises(ValueError):
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["a", "b"],
+            invalid_details="drop",
+        )
+
+    # include_details (typed) must error on multiple event types, NOT silently
+    # degrade to raw.
+    with pytest.raises(ValueError):
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["a", "b"],
+            include_details=True,
+        )
+
+    # raw_details is mutually exclusive with the typed-detail options.
+    with pytest.raises(ValueError):
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["wildlife_sighting"],
+            raw_details=True,
+            parse_detail_datetimes=True,
+        )
+    with pytest.raises(ValueError):
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["wildlife_sighting"],
+            raw_details=True,
+            invalid_details="drop",
+        )
+
+
+def test_client_get_events_include_and_raw_details_compose(app: FastAPI) -> None:
+    """include_details=True + raw_details=True is valid: details included but raw
+    JSON, so it works across multiple event types and sends raw_details."""
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["a", "b"],
+            include_details=True,
+            raw_details=True,
+        )
+    assert captured["params"]["raw_details"] is True
+    assert "include_details" not in captured["params"]
+
+
+def test_client_get_events_invalid_details_triggers_typed_mode(app: FastAPI) -> None:
+    """invalid_details alone (no include_details) must enable typed mode and
+    reach the query params, not be silently dropped onto the raw path."""
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(
+            since="2015-01-01T00:00:00",
+            until="2015-03-01T00:00:00",
+            event_type=["wildlife_sighting"],
+            invalid_details="drop",
+        )
+    assert captured["params"]["invalid_details"] == "drop"
+    assert "raw_details" not in captured["params"]
 
 
 def test_client_get_event_types(app: FastAPI) -> None:
