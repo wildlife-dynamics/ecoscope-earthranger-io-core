@@ -571,16 +571,64 @@ def test_client_query_engine_per_request_overrides_client_default(
         assert captured_params["store_type"] == "iceberg-bq"
 
 
-def test_client_unsupported_methods_raise_not_implemented() -> None:
-    """Test that get_patrol_events raises NotImplementedError."""
-    er_client = ERWarehouseClient(
-        server="some-site.pamdas.org",
-        token="abc",
-        warehouse_base_url="http://test",
-    )
+def test_client_get_patrol_events(app: FastAPI) -> None:
+    """get_patrol_events flattens get_patrols into a one-row-per-event
+    GeoDataFrame with geometry, tz-aware time, and patrol/segment context."""
+    import geopandas as gpd
 
-    with pytest.raises(NotImplementedError):
-        er_client.get_patrol_events()
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    with patch.object(ERWarehouseClient, "_httpx_client", _mock_httpx_client):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        gdf = er_client.get_patrol_events(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+        )
+
+    assert isinstance(gdf, gpd.GeoDataFrame)
+    assert len(gdf) == 1
+    row = gdf.iloc[0]
+    assert row["event_type"] == "wildlife_sighting"
+    assert row["geometry"].geom_type == "Point"
+    # time is tz-aware (UTC), ns-resolution
+    assert pd.api.types.is_datetime64_ns_dtype(gdf["time"])
+    assert gdf["time"].dt.tz is not None
+    # patrol/segment context attached from get_patrols
+    assert row["patrol_id"] == "patrol1"
+    assert row["patrol_serial_number"] == 1000
+    assert row["patrol_segment_id"] == "segment1"
+
+
+def test_client_get_patrol_events_event_type_filter(app: FastAPI) -> None:
+    """A non-matching event_type filter yields an empty result."""
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    with patch.object(ERWarehouseClient, "_httpx_client", _mock_httpx_client):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        result = er_client.get_patrol_events(event_type=["nonexistent_type"])
+
+    assert result.empty
 
 
 # -------------------------------------------------------------------------

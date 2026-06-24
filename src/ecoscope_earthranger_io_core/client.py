@@ -627,6 +627,107 @@ class ERWarehouseClient(BaseModel):
 
         return df
 
+    def get_patrol_events(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        patrol_type_value: list[str] | None = None,
+        event_type: list[str] | None = None,
+        status: list[str] | None = None,
+        drop_null_geometry: bool = False,
+        sub_page_size: int | None = None,
+        *,
+        force_point_geometry: bool = True,
+        query_engine: QueryEngine | None = None,
+    ) -> Any:
+        """Get patrol events as a flat GeoDataFrame, one row per event.
+
+        Convenience built on ``get_patrols``: it fetches patrols with their
+        events nested under each segment and flattens them to one row per event,
+        attaching the patrol/segment context (mirrors EarthRangerIO's
+        ``get_patrol_events`` = ``get_patrols`` + unpack). Each event's geometry
+        comes from its synthesized ``geojson`` and ``time`` from
+        ``geojson.properties.datetime`` (tz-aware UTC).
+
+        Args:
+            since: Start of time range (ISO 8601 format). Optional.
+            until: End of time range (ISO 8601 format). Optional.
+            patrol_type_value: List of patrol type values to filter patrols by.
+            event_type: If given, keep only events whose ``event_type`` is in the
+                list.
+            status: List of patrol statuses to filter by (e.g. ["done"]).
+            drop_null_geometry: If True, drop events with no geometry.
+            sub_page_size: Ignored (for interface compatibility).
+            force_point_geometry: If True (default), reduce non-point geometries
+                to their centroid (parity with EarthRangerIO).
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            A geopandas GeoDataFrame (EPSG:4326), one row per patrol event, or an
+            empty pandas DataFrame when no events match. ``patrol_subject`` is the
+            segment ``leader_id`` (the warehouse does not carry the leader name).
+        """
+        import geopandas as gpd
+        import pandas as pd
+        from shapely.geometry import shape
+
+        patrols_df = self.get_patrols(
+            since=since,
+            until=until,
+            patrol_type_value=patrol_type_value,
+            status=status,
+            sub_page_size=sub_page_size,
+            query_engine=query_engine,
+        )
+
+        events: list[dict] = []
+        for _, patrol in patrols_df.iterrows():
+            segments = patrol.get("patrol_segments")
+            for segment in segments if segments is not None else ():
+                seg_events = segment.get("events")
+                for event in seg_events if seg_events is not None else ():
+                    if event_type and event.get("event_type") not in event_type:
+                        continue
+                    geojson = event.get("geojson") or {}
+                    try:
+                        geom = (
+                            shape(geojson["geometry"])
+                            if geojson.get("geometry")
+                            else None
+                        )
+                    except Exception:
+                        geom = None
+                    if force_point_geometry and geom is not None:
+                        geom = geom.centroid
+                    record = {k: v for k, v in event.items() if k != "geojson"}
+                    record.update(
+                        geometry=geom,
+                        time=(geojson.get("properties") or {}).get("datetime"),
+                        patrol_id=patrol.get("id"),
+                        patrol_serial_number=patrol.get("serial_number"),
+                        patrol_segment_id=segment.get("id"),
+                        patrol_start_time=segment.get("time_range_start"),
+                        patrol_type=segment.get("patrol_type"),
+                        patrol_subject=segment.get("leader_id"),
+                    )
+                    events.append(record)
+
+        events_df = pd.DataFrame(events)
+        if events_df.empty:
+            return events_df
+        if drop_null_geometry:
+            events_df = events_df.dropna(subset="geometry").reset_index(drop=True)
+        events_df = events_df.dropna(subset="time").reset_index(drop=True)
+        # tz-aware UTC datetimes for the time columns (parity with clean_time_cols).
+        for col in ("time", "created_at", "updated_at", "patrol_start_time"):
+            if col in events_df.columns:
+                events_df[col] = pd.to_datetime(
+                    events_df[col], utc=True, errors="coerce"
+                )
+
+        return gpd.GeoDataFrame(events_df, geometry="geometry", crs=4326)
+
     def get_patrol_observations(
         self,
         patrols_df: Any,
@@ -667,26 +768,8 @@ class ERWarehouseClient(BaseModel):
         )
 
     # -------------------------------------------------------------------------
-    # EarthRangerClientProtocol implementation - Not Implemented
+    # EarthRangerClientProtocol implementation - Events
     # -------------------------------------------------------------------------
-
-    def get_patrol_events(
-        self,
-        since: str | None = None,
-        until: str | None = None,
-        patrol_type_value: list[str] | None = None,
-        event_type: list[str] | None = None,
-        status: list[str] | None = None,
-        drop_null_geometry: bool = False,
-        sub_page_size: int | None = None,
-    ) -> pa.Table:
-        """Not implemented. Patrol events are served nested under their patrol
-        segments via ``get_patrols``; use that instead."""
-        raise NotImplementedError(
-            "get_patrol_events is not implemented in ERWarehouseClient. "
-            "Patrol events are returned nested under patrol segments by "
-            "get_patrols."
-        )
 
     def get_events(
         self,
