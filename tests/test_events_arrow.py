@@ -5,6 +5,8 @@ from ecoscope_earthranger_io_core.arrow import (
     EVENT_TYPES_SCHEMA_V1,
     EVENTS_SCHEMA_V1,
     PATROL_EVENT_STRUCT_V1,
+    PATROL_SEGMENT_STRUCT_V1,
+    PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1,
     PATROLS_NESTED_SCHEMA_V1,
     PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
     REPORTED_BY_STRUCT_V1,
@@ -83,6 +85,7 @@ def test_patrol_event_struct_v1_fields():
         ("id", pa.string()),
         ("serial_number", pa.int64()),
         ("event_type", pa.string()),
+        ("event_time", pa.timestamp("ns", tz="UTC")),
         ("priority", pa.int64()),
         ("title", pa.string()),
         ("state", pa.string()),
@@ -100,9 +103,32 @@ def test_patrol_event_struct_v1_fields():
         assert PATROL_EVENT_STRUCT_V1.field(name).type == typ
 
 
+def test_patrol_segment_with_events_struct_v1_fields():
+    """The with-events segment struct = the lean segment struct's fields plus a
+    trailing events list of PATROL_EVENT_STRUCT_V1."""
+    segment_names = [
+        PATROL_SEGMENT_STRUCT_V1.field(i).name
+        for i in range(PATROL_SEGMENT_STRUCT_V1.num_fields)
+    ]
+    with_events_names = [
+        PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.field(i).name
+        for i in range(PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.num_fields)
+    ]
+    assert with_events_names == segment_names + ["events"]
+    for name in segment_names:
+        assert (
+            PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.field(name).type
+            == PATROL_SEGMENT_STRUCT_V1.field(name).type
+        )
+    assert PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.field("events").type == pa.list_(
+        PATROL_EVENT_STRUCT_V1
+    )
+
+
 def test_patrols_nested_schema_v1_unchanged():
     """Regression guard: the published PATROLS_NESTED_SCHEMA_V1 must NOT gain an
-    events column (never mutate a published versioned schema)."""
+    events column, and PATROL_SEGMENT_STRUCT_V1 must NOT gain an events field
+    (never mutate a published versioned schema)."""
     assert PATROLS_NESTED_SCHEMA_V1.names == [
         "id",
         "serial_number",
@@ -115,24 +141,35 @@ def test_patrols_nested_schema_v1_unchanged():
         "patrol_segments",
     ]
     assert "events" not in PATROLS_NESTED_SCHEMA_V1.names
+    segment_names = [
+        PATROL_SEGMENT_STRUCT_V1.field(i).name
+        for i in range(PATROL_SEGMENT_STRUCT_V1.num_fields)
+    ]
+    assert "events" not in segment_names
 
 
 def test_patrols_with_events_is_nested_plus_events_list():
-    """The with-events schema = the nested schema's fields + a trailing events
-    list of PATROL_EVENT_STRUCT_V1."""
-    assert (
-        PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.names
-        == PATROLS_NESTED_SCHEMA_V1.names + ["events"]
-    )
-    # the shared fields are identical types
+    """The with-events schema has the SAME top-level columns as the nested
+    schema (NO top-level events column); events are nested under each patrol
+    segment via PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1."""
+    assert PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.names == PATROLS_NESTED_SCHEMA_V1.names
+    assert "events" not in PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.names
+    # the non-segment fields are identical types
     for name in PATROLS_NESTED_SCHEMA_V1.names:
+        if name == "patrol_segments":
+            continue
         assert (
             PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.field(name).type
             == PATROLS_NESTED_SCHEMA_V1.field(name).type
         )
-    assert PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.field("events").type == pa.list_(
-        PATROL_EVENT_STRUCT_V1
-    )
+    # patrol_segments carries the events-bearing segment struct
+    assert PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.field(
+        "patrol_segments"
+    ).type == pa.list_(PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1)
+    segment_type = PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.field(
+        "patrol_segments"
+    ).type.value_type
+    assert segment_type.field("events").type == pa.list_(PATROL_EVENT_STRUCT_V1)
 
 
 def test_transforms_event_entries_resolve():

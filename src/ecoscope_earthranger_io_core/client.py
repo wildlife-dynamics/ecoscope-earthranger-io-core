@@ -71,6 +71,37 @@ async def _get_table(
     return table
 
 
+def _synthesize_event_geojson(
+    event: dict, *, pd: Any, shapely_geometry: Any, shapely_wkb: Any
+) -> None:
+    """Attach an ER-native ``geojson`` to a nested patrol event in place.
+
+    Builds ``{"type": "Feature", "geometry": ..., "properties": {"datetime":
+    ...}}`` from the event's WKB ``geometry`` and ``event_time``. ``geometry``
+    is ``None`` when the event has none; ``datetime`` is a tz-aware ISO string
+    (or ``None``). ``event_time`` may surface from ``to_pandas()`` either as a
+    pandas Timestamp or as raw int64 nanoseconds-since-epoch inside the struct
+    dict (UTC by schema contract) -- both are handled.
+    """
+    geometry_wkb = event.get("geometry")
+    if geometry_wkb is not None:
+        geometry = shapely_geometry.mapping(shapely_wkb.loads(geometry_wkb))
+    else:
+        geometry = None
+    event_time = event.get("event_time")
+    if event_time is None or pd.isna(event_time):
+        datetime_str = None
+    elif hasattr(event_time, "isoformat"):
+        datetime_str = event_time.isoformat()
+    else:
+        datetime_str = pd.Timestamp(event_time, unit="ns", tz="UTC").isoformat()
+    event["geojson"] = {
+        "type": "Feature",
+        "geometry": geometry,
+        "properties": {"datetime": datetime_str},
+    }
+
+
 class ERWarehouseClient(BaseModel):
     """EarthRanger Warehouse Client.
 
@@ -526,8 +557,87 @@ class ERWarehouseClient(BaseModel):
             patrol_type_value=patrol_type_value,
             patrol_status=status,
             patrols_overlap_daterange=patrols_overlap_daterange,
+            include_events=False,
         )
         return self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
+
+    def get_patrols(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        patrol_type_value: list[str] | None = None,
+        status: list[str] | None = None,
+        sub_page_size: int | None = None,
+        patrols_overlap_daterange: bool = True,
+        query_engine: QueryEngine | None = None,
+    ) -> Any:
+        """Get patrols with their events from the EarthRanger Data Warehouse.
+
+        Returns patrols with events nested under each patrol segment at
+        ``patrol_segments[].events[]``. Each event carries a synthesized
+        ``geojson`` (``{"type": "Feature", "geometry": ..., "properties":
+        {"datetime": ...}}``) derived from the event's WKB ``geometry`` and its
+        ``event_time``, so the result is the ER-native shape consumed by
+        ecoscope's ``unpack_events_from_patrols_df`` (which reads each event's
+        ``geojson`` to build the events GeoDataFrame geometry and time).
+
+        ``event_details``, ``reported_by``, and ``event_category`` are present in
+        the event struct but are intentionally not required by the patrols
+        workflow; only the geometry and time (via ``geojson``) are needed.
+
+        Args:
+            since: Start of time range (ISO 8601 format). Optional.
+            until: End of time range (ISO 8601 format). Optional.
+            patrol_type_value: List of patrol type values to filter by.
+            status: List of patrol statuses to filter by (e.g., ["done"]).
+            sub_page_size: Ignored (for interface compatibility).
+            patrols_overlap_daterange: If True (default), include patrols
+                whose time range overlaps [since, until]; if False, include
+                only patrols starting within that range.
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            A pandas DataFrame, one row per patrol, with a ``patrol_segments``
+            column whose segments each carry an ``events`` list of event dicts
+            (each with a synthesized ``geojson``).
+        """
+        import pandas as pd
+        import shapely.geometry
+        import shapely.wkb
+
+        engine = query_engine or self.query_engine
+        query = PatrolsQuery(
+            tenant_domain=self.server,
+            range_start=datetime.fromisoformat(since) if since else None,
+            range_end=datetime.fromisoformat(until) if until else None,
+            patrol_type_value=patrol_type_value,
+            patrol_status=status,  # type: ignore[arg-type]
+            patrols_overlap_daterange=patrols_overlap_daterange,
+            include_events=True,
+        )
+        table = self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
+        df = table.to_pandas()
+
+        for segments in df.get("patrol_segments", pd.Series(dtype=object)):
+            if segments is None:
+                continue
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                events = segment.get("events")
+                if events is None:
+                    continue
+                for event in events:
+                    if isinstance(event, dict):
+                        _synthesize_event_geojson(
+                            event,
+                            pd=pd,
+                            shapely_geometry=shapely.geometry,
+                            shapely_wkb=shapely.wkb,
+                        )
+
+        return df
 
     def get_patrol_observations(
         self,

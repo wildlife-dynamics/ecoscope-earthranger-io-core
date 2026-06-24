@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import SecretStr
 
+import pandas as pd
 import pyarrow as pa
 import pytest
 from fastapi import FastAPI
@@ -241,6 +242,99 @@ def test_client_get_patrols_minimal(app: FastAPI) -> None:
         assert "patrol_segments" in table.column_names
         segments = table.column("patrol_segments").to_pylist()
         assert all(isinstance(s, list) for s in segments)
+
+
+def test_client_get_patrols_with_events(app: FastAPI) -> None:
+    """get_patrols returns a pandas DataFrame with events nested under each
+    patrol segment, each event carrying a synthesized geojson."""
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            yield mock_httpx_client
+
+    with patch.object(
+        ERWarehouseClient,
+        "_httpx_client",
+        _mock_httpx_client,
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            username="fast-data-enthusiast",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        df = er_client.get_patrols(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            patrol_type_value=["routine_patrol"],
+            status=["done"],
+        )
+
+    # The patrols workflow's get_patrols task does `.empty` on the result.
+    assert isinstance(df, pd.DataFrame)
+    assert not df.empty
+    assert "patrol_segments" in df.columns
+
+    row = df.iloc[0]
+    event = row["patrol_segments"][0]["events"][0]
+    geojson = event["geojson"]
+    assert geojson["type"] == "Feature"
+    assert isinstance(geojson["geometry"], dict)
+    assert geojson["geometry"]["type"] == "Point"
+    datetime_str = geojson["properties"]["datetime"]
+    assert isinstance(datetime_str, str)
+    # ISO 8601 string parses back to a datetime.
+    datetime.fromisoformat(datetime_str)
+
+
+def test_synthesize_event_geojson_int64_event_time() -> None:
+    """to_pandas surfaces a nested timestamp[ns, UTC] as raw int64 ns; the
+    helper must coerce it to a tz-aware (UTC) ISO string."""
+    import shapely.geometry
+    import shapely.wkb
+
+    from ecoscope_earthranger_io_core.client import _synthesize_event_geojson
+
+    # 2015-01-01T12:00:00Z expressed as nanoseconds since the epoch.
+    ns = int(pd.Timestamp("2015-01-01T12:00:00", tz="UTC").value)
+    event = {
+        "geometry": shapely.wkb.dumps(shapely.geometry.Point(0.0, 1.0)),
+        "event_time": ns,
+    }
+    _synthesize_event_geojson(
+        event,
+        pd=pd,
+        shapely_geometry=shapely.geometry,
+        shapely_wkb=shapely.wkb,
+    )
+    datetime_str = event["geojson"]["properties"]["datetime"]
+    parsed = datetime.fromisoformat(datetime_str)
+    assert parsed.utcoffset() is not None  # tz-aware
+    assert parsed.utcoffset().total_seconds() == 0  # UTC
+    assert event["geojson"]["geometry"]["type"] == "Point"
+
+
+def test_synthesize_event_geojson_null_geometry_and_time() -> None:
+    """An event with no geometry and no event_time yields a Feature with null
+    geometry and null datetime (ecoscope drops such rows downstream)."""
+    import shapely.geometry
+    import shapely.wkb
+
+    from ecoscope_earthranger_io_core.client import _synthesize_event_geojson
+
+    event: dict = {"geometry": None, "event_time": None}
+    _synthesize_event_geojson(
+        event,
+        pd=pd,
+        shapely_geometry=shapely.geometry,
+        shapely_wkb=shapely.wkb,
+    )
+    assert event["geojson"]["geometry"] is None
+    assert event["geojson"]["properties"]["datetime"] is None
 
 
 def test_client_get_patrol_observations(app: FastAPI) -> None:

@@ -197,6 +197,7 @@ PATROL_EVENT_STRUCT_V1 = pa.struct(
         ("id", pa.string()),
         ("serial_number", pa.int64()),
         ("event_type", pa.string()),
+        ("event_time", pa.timestamp("ns", tz="UTC")),
         ("priority", pa.int64()),
         ("title", pa.string()),
         ("state", pa.string()),
@@ -208,9 +209,19 @@ PATROL_EVENT_STRUCT_V1 = pa.struct(
     ]
 )
 
+# Patrol-segment struct carrying its events. This is the segment struct used by
+# the with-events schema only: it is PATROL_SEGMENT_STRUCT_V1's fields plus a
+# trailing ``events`` list. PATROL_SEGMENT_STRUCT_V1 itself is left untouched.
+PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1 = pa.struct(
+    list(PATROL_SEGMENT_STRUCT_V1)
+    + [pa.field("events", pa.list_(PATROL_EVENT_STRUCT_V1))]
+)
+
 # Nested patrols schema WITH events — selected only when include_events=true.
 # This is a NEW versioned schema: PATROLS_NESTED_SCHEMA_V1 is left untouched
-# (never mutate a published versioned schema).
+# (never mutate a published versioned schema). It has the same top-level columns
+# as PATROLS_NESTED_SCHEMA_V1, but each patrol segment carries its own events
+# (events are nested under ``patrol_segments[].events[]``, not at the top level).
 PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 = pa.schema(
     [  # type: ignore[arg-type]
         ("id", pa.string()),
@@ -221,8 +232,7 @@ PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 = pa.schema(
         ("objective", pa.string()),
         ("created_at", pa.string()),
         ("updated_at", pa.string()),
-        ("patrol_segments", pa.list_(PATROL_SEGMENT_STRUCT_V1)),
-        ("events", pa.list_(PATROL_EVENT_STRUCT_V1)),
+        ("patrol_segments", pa.list_(PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1)),
     ]
 )
 

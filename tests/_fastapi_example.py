@@ -6,11 +6,15 @@ import pyarrow as pa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+import shapely.geometry
+import shapely.wkb
+
 from ecoscope_earthranger_io_core.arrow import (
     EVENT_TYPES_SCHEMA_V1,
     EVENTS_SCHEMA_V1,
     OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1,
     PATROLS_NESTED_SCHEMA_V1,
+    PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
     TRANSFORMS,
     SchemaChoices,
     TransformSpec,
@@ -158,6 +162,53 @@ app.include_router(observations)
 patrols = APIRouter(prefix="/patrols")
 
 
+def _build_patrols_with_events_record_batch() -> pa.RecordBatch:
+    """Build a canned patrols-with-events RecordBatch (one patrol, one segment,
+    one event) conforming to PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1."""
+    event_geometry = shapely.wkb.dumps(shapely.geometry.Point(0.0, 1.0))
+    event = {
+        "id": "event1",
+        "serial_number": 1,
+        "event_type": "wildlife_sighting",
+        "event_time": datetime(2015, 1, 1, 12, 0, tzinfo=timezone.utc),
+        "priority": 0,
+        "title": "Elephant",
+        "state": "active",
+        "updated_at": "2015-01-01T12:00:00+00:00",
+        "created_at": "2015-01-01T12:00:00+00:00",
+        "geometry": event_geometry,
+        "is_collection": False,
+        "event_details": '{"species": "elephant"}',
+    }
+    segment = {
+        "id": "segment1",
+        "patrol_type": "routine_patrol",
+        "patrol_type_display": "Routine Patrol",
+        "leader_id": "leader1",
+        "time_range_start": "2015-01-01T12:00:00+00:00",
+        "time_range_end": "2015-01-01T14:00:00+00:00",
+        "scheduled_start": "2015-01-01T12:00:00+00:00",
+        "scheduled_end": "2015-01-01T14:00:00+00:00",
+        "start_location": None,
+        "end_location": None,
+        "events": [event],
+    }
+    patrol = {
+        "id": "patrol1",
+        "serial_number": 1000,
+        "priority": 0,
+        "state": "done",
+        "title": "Mock Patrol 1",
+        "objective": "Test objective",
+        "created_at": "2015-01-01T12:00:00+00:00",
+        "updated_at": "2015-01-01T12:00:00+00:00",
+        "patrol_segments": [segment],
+    }
+    return pa.RecordBatch.from_pylist(
+        [patrol], schema=PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1
+    )
+
+
 @patrols.get("/stream/arrow")
 async def get_patrols_streaming_arrow(
     query: PatrolsQuery = Depends(PatrolsQuery.from_query_params),
@@ -167,6 +218,15 @@ async def get_patrols_streaming_arrow(
 
     async def generate_arrow_bytes():
         """Generate Arrow IPC stream bytes."""
+        if query.include_events:
+            sink = pa.BufferOutputStream()
+            writer = pa.ipc.new_stream(sink, PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1)
+            try:
+                writer.write_batch(_build_patrols_with_events_record_batch())
+            finally:
+                writer.close()
+            yield sink.getvalue().to_pybytes()
+            return
         async_batch_generator = get_async_patrols_rb_generator(query)
         sink = pa.BufferOutputStream()
         writer = pa.ipc.new_stream(sink, PATROLS_NESTED_SCHEMA_V1)
