@@ -31,10 +31,12 @@ test = [
     "pytest",
     "pytest-asyncio",
     "httpx",
-    # client-side methods (get_patrols, display-name resolution) lazy-import
-    # these; the pip test path has no geopandas, so declare them explicitly
+    # client-side methods (get_patrols / get_patrol_events / display-name
+    # resolution) lazy-import these; declared here (not in core deps) so the
+    # test suite can exercise them on the pip path
     "pandas",
     "shapely",
+    "geopandas",
 ]
 
 [tool.pixi.dependencies]
