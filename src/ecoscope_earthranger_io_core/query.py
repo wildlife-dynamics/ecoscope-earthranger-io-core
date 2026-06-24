@@ -7,8 +7,15 @@ from pydantic import BaseModel, Field
 QueryEngine = Literal["auto", "iceberg-bq", "iceberg-dd"]
 
 
-class _WarehouseQuery(BaseModel):
+class _TenantQuery(BaseModel):
+    """Base for any tenant-scoped warehouse query. ``tenant_domain`` is the
+    user-facing input; the API resolves it to an internal ``tenant_id`` on a
+    subclass."""
+
     tenant_domain: str
+
+
+class _WarehouseQuery(_TenantQuery):
     range_start: datetime | None = None
     range_end: datetime | None = None
 
@@ -202,17 +209,15 @@ class EventsQuery(_WarehouseQuery):
         )
 
 
-class EventTypesQuery(BaseModel):
+class EventTypesQuery(_TenantQuery):
     """Query for the warehouse /event_types listing (tenant-scoped)."""
-
-    tenant_domain: str
 
     @classmethod
     def from_query_params(cls, tenant_domain: str = Query(...)) -> "EventTypesQuery":
         return cls(tenant_domain=tenant_domain)
 
 
-class EventTypeSchemaQuery(BaseModel):
+class EventTypeSchemaQuery(_TenantQuery):
     """Lookup for a single event type's ``event_details`` schema.
 
     Used by the warehouse ``/events/schema`` discovery endpoint, which serves
@@ -231,7 +236,6 @@ class EventTypeSchemaQuery(BaseModel):
     ```
     """
 
-    tenant_domain: str
     event_type: str
 
     @classmethod
