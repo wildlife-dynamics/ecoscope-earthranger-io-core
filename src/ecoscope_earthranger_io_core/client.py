@@ -6,14 +6,18 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
-from typing import Any
+from typing import Any, Literal, overload
 from urllib.parse import urlparse
 
 import httpx
 import pyarrow as pa
 from pydantic import BaseModel, PrivateAttr, SecretStr, field_validator
 
+from ecoscope_earthranger_io_core.arrow import PATROL_EVENTS_FLAT_SCHEMA_V1
 from ecoscope_earthranger_io_core.query import (
+    EventsQuery,
+    EventTypeSchemaQuery,
+    EventTypesQuery,
     ObservationsQuery,
     PatrolsQuery,
     QueryEngine,
@@ -26,6 +30,7 @@ async def _get_table(
     query: BaseModel,
     headers: dict[str, str] | None = None,
     store_type: QueryEngine | None = None,
+    extra_params: dict | None = None,
 ) -> pa.Table:
     """Fetch Arrow IPC stream from the warehouse API and return as a PyArrow Table.
 
@@ -36,10 +41,14 @@ async def _get_table(
         headers: Optional headers to include.
         store_type: Optional store type to pass as a query parameter
             (maps to the DWH API's ``store_type`` param).
+        extra_params: Optional response-shaping flags merged into the query
+            string after the query model fields and ``store_type``.
     """
     params = query.model_dump(exclude_none=True)
     if store_type is not None:
         params["store_type"] = store_type
+    if extra_params:
+        params.update(extra_params)
     async with client.stream(
         "GET",
         route,
@@ -105,6 +114,8 @@ class ERWarehouseClient(BaseModel):
     warehouse_base_url: str | None = None
     warehouse_observations_endpoint: str = "/observations"
     warehouse_patrols_endpoint: str = "/patrols"
+    warehouse_events_endpoint: str = "/events"
+    warehouse_event_types_endpoint: str = "/event_types"
     query_engine: QueryEngine = "auto"
 
     _resolved_base_url: str | None = PrivateAttr(default=None)
@@ -291,6 +302,69 @@ class ERWarehouseClient(BaseModel):
             )
         return table
 
+    async def _fetch_events_arrow(
+        self,
+        query: EventsQuery,
+        query_engine: QueryEngine = "auto",
+    ) -> pa.Table:
+        """Internal async method to fetch events as Arrow table."""
+        async with self._httpx_client() as client:
+            table = await _get_table(
+                client=client,
+                route=f"{self.warehouse_events_endpoint}/stream/arrow",
+                query=query,
+                headers=self._get_auth_headers(),
+                store_type=query_engine,
+            )
+        return table
+
+    async def _fetch_event_types_arrow(
+        self,
+        query: EventTypesQuery,
+        query_engine: QueryEngine = "auto",
+    ) -> pa.Table:
+        """Internal async method to fetch event types as Arrow table."""
+        async with self._httpx_client() as client:
+            table = await _get_table(
+                client=client,
+                route=self.warehouse_event_types_endpoint,
+                query=query,
+                headers=self._get_auth_headers(),
+                store_type=query_engine,
+            )
+        return table
+
+    async def _fetch_event_schema(
+        self,
+        query: EventTypeSchemaQuery,
+        *,
+        parse_detail_datetimes: bool,
+        fmt: Literal["arrow", "json"],
+        query_engine: QueryEngine = "auto",
+    ) -> "pa.Schema | dict[str, Any]":
+        """Fetch the event_details schema from the /events/schema endpoint.
+
+        Unlike the streaming endpoints, /events/schema returns a bare Arrow
+        *schema message* (read with ``pa.ipc.read_schema``), not an IPC stream,
+        or — with ``fmt="json"`` — an informational ``{field: type_str}`` mapping.
+        """
+        params = query.model_dump(exclude_none=True)
+        params["store_type"] = query_engine
+        params["format"] = fmt
+        if parse_detail_datetimes:
+            params["parse_detail_datetimes"] = True
+        async with self._httpx_client() as client:
+            response = await client.get(
+                f"{self.warehouse_events_endpoint}/schema",
+                params=params,
+                headers=self._get_auth_headers(),
+                timeout=600,
+            )
+            response.raise_for_status()
+            if fmt == "json":
+                return response.json()
+            return pa.ipc.read_schema(pa.py_buffer(response.content))
+
     def _run_async(self, coro):
         """Run an async coroutine synchronously.
 
@@ -451,8 +525,119 @@ class ERWarehouseClient(BaseModel):
             patrol_type_value=patrol_type_value,
             patrol_status=status,
             patrols_overlap_daterange=patrols_overlap_daterange,
+            include_events=False,
         )
         return self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
+
+    def get_patrols(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        patrol_type_value: list[str] | None = None,
+        status: list[str] | None = None,
+        sub_page_size: int | None = None,
+        patrols_overlap_daterange: bool = True,
+        query_engine: QueryEngine | None = None,
+    ) -> pa.Table:
+        """Get patrols with their events from the EarthRanger Data Warehouse.
+
+        Returns a ``pa.Table`` of patrols with events nested under each patrol
+        segment at ``patrol_segments[].events[]`` (event geometry is WKB), in the
+        ER-native shape.
+
+        Args:
+            since: Start of time range (ISO 8601 format). Optional.
+            until: End of time range (ISO 8601 format). Optional.
+            patrol_type_value: List of patrol type values to filter by.
+            status: List of patrol statuses to filter by (e.g., ["done"]).
+            sub_page_size: Ignored (for interface compatibility).
+            patrols_overlap_daterange: If True (default), include patrols
+                whose time range overlaps [since, until]; if False, include
+                only patrols starting within that range.
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            PyArrow Table of patrols, one row per patrol, with a
+            ``patrol_segments`` list column whose segments each carry a nested
+            ``events`` list (WKB geometry).
+            Schema: PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.
+        """
+        engine = query_engine or self.query_engine
+        query = PatrolsQuery(
+            tenant_domain=self.server,
+            range_start=datetime.fromisoformat(since) if since else None,
+            range_end=datetime.fromisoformat(until) if until else None,
+            patrol_type_value=patrol_type_value,
+            patrol_status=status,  # type: ignore[arg-type]
+            patrols_overlap_daterange=patrols_overlap_daterange,
+            include_events=True,
+        )
+        return self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
+
+    def get_patrol_events(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        patrol_type_value: list[str] | None = None,
+        event_type: list[str] | None = None,
+        status: list[str] | None = None,
+        drop_null_geometry: bool = False,
+        sub_page_size: int | None = None,
+        query_engine: QueryEngine | None = None,
+    ) -> pa.Table:
+        """Get patrol events as a flat ``pa.Table``, one row per event.
+
+        Fetches patrols with their nested events via ``get_patrols`` and
+        flattens ``patrol_segments[].events[]`` to one row per event, attaching
+        the patrol/segment context (``patrol_id``, ``patrol_serial_number``,
+        ``patrol_segment_id``, ``patrol_type``, ``patrol_start_time``). Event
+        geometry is the geoarrow WKB column (EPSG:4326).
+
+        Args:
+            since: Start of time range (ISO 8601 format). Optional.
+            until: End of time range (ISO 8601 format). Optional.
+            patrol_type_value: List of patrol type values to filter patrols by.
+            event_type: If given, keep only events whose ``event_type`` is in the
+                list.
+            status: List of patrol statuses to filter by (e.g., ["done"]).
+            drop_null_geometry: If True, exclude events with no geometry.
+            sub_page_size: Ignored (for interface compatibility).
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            PyArrow Table, one row per patrol event.
+            Schema: PATROL_EVENTS_FLAT_SCHEMA_V1.
+        """
+        patrols = self.get_patrols(
+            since=since,
+            until=until,
+            patrol_type_value=patrol_type_value,
+            status=status,
+            sub_page_size=sub_page_size,
+            query_engine=query_engine,
+        )
+        wanted_types = set(event_type or [])
+        rows: list[dict] = []
+        for patrol in patrols.to_pylist():
+            for segment in patrol.get("patrol_segments") or []:
+                for event in segment.get("events") or []:
+                    if wanted_types and event.get("event_type") not in wanted_types:
+                        continue
+                    if drop_null_geometry and event.get("geometry") is None:
+                        continue
+                    rows.append(
+                        {
+                            **event,
+                            "patrol_id": patrol.get("id"),
+                            "patrol_serial_number": patrol.get("serial_number"),
+                            "patrol_segment_id": segment.get("id"),
+                            "patrol_type": segment.get("patrol_type"),
+                            "patrol_start_time": segment.get("time_range_start"),
+                        }
+                    )
+        return pa.Table.from_pylist(rows, schema=PATROL_EVENTS_FLAT_SCHEMA_V1)
 
     def get_patrol_observations(
         self,
@@ -494,24 +679,8 @@ class ERWarehouseClient(BaseModel):
         )
 
     # -------------------------------------------------------------------------
-    # EarthRangerClientProtocol implementation - Not Implemented
+    # EarthRangerClientProtocol implementation - Events
     # -------------------------------------------------------------------------
-
-    def get_patrol_events(
-        self,
-        since: str | None = None,
-        until: str | None = None,
-        patrol_type_value: list[str] | None = None,
-        event_type: list[str] | None = None,
-        status: list[str] | None = None,
-        drop_null_geometry: bool = False,
-        sub_page_size: int | None = None,
-    ) -> pa.Table:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_patrol_events is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
-        )
 
     def get_events(
         self,
@@ -522,18 +691,198 @@ class ERWarehouseClient(BaseModel):
         include_details: bool = False,
         include_updates: bool = False,
         include_related_events: bool = False,
+        *,
+        raw_details: bool = False,
+        parse_detail_datetimes: bool = False,
+        invalid_details: Literal["drop", "coerce"] | None = None,
+        invalid_only: bool = False,
+        query_engine: QueryEngine | None = None,
     ) -> pa.Table:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_events is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
+        """Get events from the EarthRanger Data Warehouse.
+
+        Args:
+            since: Start of time range (ISO 8601 format). Optional.
+            until: End of time range (ISO 8601 format). Optional.
+            event_type: List of event type values to filter by.
+            drop_null_geometry: If True, exclude events without geometry. Maps to
+                the API's ``include_null_geometry`` (inverse).
+            include_details: Include the ``event_details`` payload. When False
+                (default) it is omitted entirely. On its own (``raw_details``
+                False) it requests the typed struct derived from the event type's
+                schema, which requires exactly one ``event_type`` (raises
+                otherwise); it does NOT silently fall back to raw.
+            include_updates: Unsupported; raises NotImplementedError.
+            include_related_events: Unsupported; raises NotImplementedError.
+            raw_details: Format override — return ``event_details`` as a flat JSON
+                string (``EVENTS_SCHEMA_V1``) instead of the typed struct, which
+                works across any number of event types. Composes with
+                ``include_details`` (``include_details=True, raw_details=True`` is
+                a valid "include details, but raw" request) and may also be used
+                on its own. Mutually exclusive with the typed-detail options
+                below.
+            parse_detail_datetimes: In typed mode, best-effort parse of datetime
+                strings inside ``event_details``. Requires exactly one event_type.
+            invalid_details: In typed mode, how to handle ``event_details`` that
+                fail schema validation: ``"drop"`` to drop the offending values,
+                ``"coerce"`` to coerce them.
+            invalid_only: In typed mode, return only rows whose ``event_details``
+                fail schema validation. Requires exactly one event_type.
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            PyArrow Table with events data. Schema: EVENTS_SCHEMA_V1
+            (``event_details`` is a typed struct in typed mode, a JSON string
+            with ``raw_details``, and null when details are omitted).
+
+        Raises:
+            NotImplementedError: If ``include_updates`` or
+                ``include_related_events`` is requested; the warehouse does not
+                serve event updates or related events.
+            ValueError: If typed mode (``include_details`` /
+                ``parse_detail_datetimes`` / ``invalid_only`` /
+                ``invalid_details``, with ``raw_details`` False) is requested
+                without exactly one event_type; or if ``raw_details`` is combined
+                with ``parse_detail_datetimes`` / ``invalid_only`` /
+                ``invalid_details``.
+        """
+        if include_updates or include_related_events:
+            raise NotImplementedError(
+                "include_updates and include_related_events are not supported by "
+                "the Data Warehouse API; event updates and related events are not "
+                "served."
+            )
+
+        event_type = list(event_type or [])
+        n = len(event_type)
+
+        # parse_detail_datetimes/invalid_only/invalid_details configure the typed
+        # event_details struct, so they only make sense in typed mode.
+        typed_only = invalid_details or parse_detail_datetimes or invalid_only
+
+        if raw_details and typed_only:
+            raise ValueError(
+                "raw_details cannot be combined with parse_detail_datetimes, "
+                "invalid_only, or invalid_details: those configure the typed "
+                "event_details struct, which raw_details opts out of."
+            )
+
+        # raw_details is a format override: include_details + raw_details is a
+        # valid "include details, but as raw JSON" request. The typed struct is
+        # derived from a single event type's schema (heterogeneous types can't
+        # share one Arrow struct), so typed mode requires exactly one event_type.
+        want_typed = (include_details or typed_only) and not raw_details
+        if want_typed and n != 1:
+            raise ValueError(
+                "include_details (and parse_detail_datetimes / invalid_only / "
+                "invalid_details) require exactly one event_type, since the "
+                "typed event_details struct is derived from a single event "
+                "type's schema. Pass raw_details=True for raw JSON "
+                "event_details across multiple event types."
+            )
+
+        # since/until are optional and may be half-bounded, matching the API,
+        # EventsQuery, and EarthRangerIO.get_events; an omitted bound is dropped
+        # from the query params. The detail-shaping options are fields on the
+        # shared EventsQuery (single source of truth): event_details is included
+        # when typed OR raw; raw_details picks the flat-JSON format.
+        query = EventsQuery(
+            tenant_domain=self.server,
+            range_start=datetime.fromisoformat(since) if since else None,
+            range_end=datetime.fromisoformat(until) if until else None,
+            event_type=event_type or None,
+            include_null_geometry=not drop_null_geometry,
+            include_details=want_typed or raw_details,
+            raw_details=raw_details,
+            parse_detail_datetimes=parse_detail_datetimes,
+            invalid_only=invalid_only,
+            invalid_details=invalid_details or "drop",
         )
 
-    def get_event_types(self) -> Any:
-        """Not implemented - events not yet supported by the Data Warehouse."""
-        raise NotImplementedError(
-            "get_event_types is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
+        engine = query_engine or self.query_engine
+        return self._run_async(self._fetch_events_arrow(query, query_engine=engine))
+
+    def get_event_types(self, query_engine: QueryEngine | None = None) -> pa.Table:
+        """Get event types from the EarthRanger Data Warehouse.
+
+        The returned table provides the ``value`` -> ``display`` mapping used to
+        resolve event type display names.
+
+        Args:
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            PyArrow Table with event types. Schema: EVENT_TYPES_SCHEMA_V1
+            (id, value, display, category_value, is_active, is_collection).
+        """
+        engine = query_engine or self.query_engine
+        query = EventTypesQuery(tenant_domain=self.server)
+        return self._run_async(
+            self._fetch_event_types_arrow(query, query_engine=engine)
+        )
+
+    @overload
+    def get_event_schema(
+        self,
+        event_type: str,
+        *,
+        parse_detail_datetimes: bool = ...,
+        format: Literal["arrow"] = ...,
+        query_engine: QueryEngine | None = ...,
+    ) -> pa.Schema: ...
+
+    @overload
+    def get_event_schema(
+        self,
+        event_type: str,
+        *,
+        parse_detail_datetimes: bool = ...,
+        format: Literal["json"],
+        query_engine: QueryEngine | None = ...,
+    ) -> dict[str, Any]: ...
+
+    def get_event_schema(
+        self,
+        event_type: str,
+        *,
+        parse_detail_datetimes: bool = False,
+        format: Literal["arrow", "json"] = "arrow",
+        query_engine: QueryEngine | None = None,
+    ) -> "pa.Schema | dict[str, Any]":
+        """Discover the typed ``event_details`` schema for one event type.
+
+        Reads the warehouse ``/events/schema`` discovery endpoint, which serves
+        exactly one event type. This is a convenience for introspecting the
+        ``event_details`` struct shape ahead of streaming; the same struct is
+        embedded in ``/events/stream/arrow`` responses in typed mode, so this
+        call is not required to consume events.
+
+        Args:
+            event_type: The single event type value (slug) or UUID to discover.
+            parse_detail_datetimes: If True, return the datetime-typed variant
+                (JSON-Schema ``date-time`` -> ``timestamp(ns, UTC)``, ``date`` ->
+                ``date32``), matching what ``/events/stream/arrow`` emits for the
+                same flag.
+            format: ``"arrow"`` (default) returns a ``pa.Schema`` whose
+                ``event_details`` field is the derived struct; ``"json"`` returns
+                an informational ``{field: type_str}`` mapping.
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            A ``pa.Schema`` (format="arrow") or a ``dict[str, Any]``
+            (format="json").
+        """
+        engine = query_engine or self.query_engine
+        query = EventTypeSchemaQuery(tenant_domain=self.server, event_type=event_type)
+        return self._run_async(
+            self._fetch_event_schema(
+                query,
+                parse_detail_datetimes=parse_detail_datetimes,
+                fmt=format,
+                query_engine=engine,
+            )
         )
 
     def get_event_type_display_names_from_events(
@@ -541,8 +890,15 @@ class ERWarehouseClient(BaseModel):
         events_gdf: Any,
         append_category_names: str = "duplicates",
     ) -> Any:
-        """Not implemented - events not yet supported by the Data Warehouse."""
+        """Not implemented; the DWH client returns only pyarrow types.
+
+        The ``value`` -> ``display`` (and ``category_value``) mapping needed to
+        resolve event-type display names is available from ``get_event_types()``
+        (a ``pa.Table``).
+        """
         raise NotImplementedError(
-            "get_event_type_display_names_from_events is not yet implemented in ERWarehouseClient. "
-            "Events are not currently supported by the Data Warehouse API."
+            "get_event_type_display_names_from_events is not implemented in "
+            "ERWarehouseClient, which returns only pyarrow types. The "
+            "value->display mapping needed to resolve event-type display names "
+            "is available from get_event_types() (a pa.Table)."
         )

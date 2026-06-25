@@ -7,8 +7,15 @@ from pydantic import BaseModel, Field
 QueryEngine = Literal["auto", "iceberg-bq", "iceberg-dd"]
 
 
-class _WarehouseQuery(BaseModel):
+class _TenantQuery(BaseModel):
+    """Base for any tenant-scoped warehouse query. ``tenant_domain`` is the
+    user-facing input; the API resolves it to an internal ``tenant_id`` on a
+    subclass."""
+
     tenant_domain: str
+
+
+class _WarehouseQuery(_TenantQuery):
     range_start: datetime | None = None
     range_end: datetime | None = None
 
@@ -135,6 +142,44 @@ class EventsQuery(_WarehouseQuery):
             "if False, exclude them."
         ),
     )
+    include_details: bool = Field(
+        default=False,
+        description=(
+            "If True, include the event_details payload (a typed struct derived "
+            "from the event type's schema unless raw_details is set); if False "
+            "(default), omit event_details."
+        ),
+    )
+    raw_details: bool = Field(
+        default=False,
+        description=(
+            "Format override: serve event_details as a flat JSON string "
+            "instead of the typed struct. Works across any number of event "
+            "types. Mutually exclusive with the typed-only options below."
+        ),
+    )
+    parse_detail_datetimes: bool = Field(
+        default=False,
+        description=(
+            "Typed-struct only: map event_details date-time/date fields to Arrow "
+            "timestamp/date instead of strings."
+        ),
+    )
+    invalid_details: Literal["drop", "coerce"] = Field(
+        default="drop",
+        description=(
+            "Typed-struct only: how to handle event_details that fail schema "
+            "validation -- 'drop' (default) excludes the event, 'coerce' keeps "
+            "it with offending fields nulled. Ignored when raw_details is True."
+        ),
+    )
+    invalid_only: bool = Field(
+        default=False,
+        description=(
+            "Typed-struct only: return ONLY the events the active invalid_details "
+            "policy treats as invalid (for bad-data inspection)."
+        ),
+    )
 
     @classmethod
     def from_query_params(
@@ -144,6 +189,11 @@ class EventsQuery(_WarehouseQuery):
         range_end: datetime | None = Query(None),
         event_type: list[str] | None = Query(None),
         include_null_geometry: bool = Query(True),
+        include_details: bool = Query(False),
+        raw_details: bool = Query(False),
+        parse_detail_datetimes: bool = Query(False),
+        invalid_details: Literal["drop", "coerce"] = Query("drop"),
+        invalid_only: bool = Query(False),
     ) -> "EventsQuery":
         return cls(
             tenant_domain=tenant_domain,
@@ -151,10 +201,23 @@ class EventsQuery(_WarehouseQuery):
             range_end=range_end,
             event_type=event_type,
             include_null_geometry=include_null_geometry,
+            include_details=include_details,
+            raw_details=raw_details,
+            parse_detail_datetimes=parse_detail_datetimes,
+            invalid_details=invalid_details,
+            invalid_only=invalid_only,
         )
 
 
-class EventTypeSchemaQuery(BaseModel):
+class EventTypesQuery(_TenantQuery):
+    """Query for the warehouse /event_types listing (tenant-scoped)."""
+
+    @classmethod
+    def from_query_params(cls, tenant_domain: str = Query(...)) -> "EventTypesQuery":
+        return cls(tenant_domain=tenant_domain)
+
+
+class EventTypeSchemaQuery(_TenantQuery):
     """Lookup for a single event type's ``event_details`` schema.
 
     Used by the warehouse ``/events/schema`` discovery endpoint, which serves
@@ -173,7 +236,6 @@ class EventTypeSchemaQuery(BaseModel):
     ```
     """
 
-    tenant_domain: str
     event_type: str
 
     @classmethod

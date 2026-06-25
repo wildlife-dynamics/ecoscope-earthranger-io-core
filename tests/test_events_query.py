@@ -42,6 +42,17 @@ def test_events_query_rejects_event_ids_kwarg():
     assert "event_ids" not in EventsQuery.model_fields
 
 
+def test_events_query_detail_shaping_defaults():
+    """The detail-shaping options are fields on the shared EventsQuery (single
+    source of truth), defaulting to the no-details / typed-drop contract."""
+    q = EventsQuery(tenant_domain="example.pamdas.org")
+    assert q.include_details is False
+    assert q.raw_details is False
+    assert q.parse_detail_datetimes is False
+    assert q.invalid_details == "drop"
+    assert q.invalid_only is False
+
+
 @pytest.mark.parametrize("include_null_geometry", [True, False])
 def test_events_query_from_query_params_round_trip(include_null_geometry):
     q = EventsQuery.from_query_params(
@@ -50,9 +61,19 @@ def test_events_query_from_query_params_round_trip(include_null_geometry):
         range_end=None,
         event_type=["a", "b"],
         include_null_geometry=include_null_geometry,
+        include_details=True,
+        raw_details=False,
+        parse_detail_datetimes=True,
+        invalid_details="coerce",
+        invalid_only=True,
     )
     assert q.event_type == ["a", "b"]
     assert q.include_null_geometry is include_null_geometry
+    assert q.include_details is True
+    assert q.raw_details is False
+    assert q.parse_detail_datetimes is True
+    assert q.invalid_details == "coerce"
+    assert q.invalid_only is True
 
 
 # ---------------------------------------------------------------------------
