@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import SecretStr
 
-import pandas as pd
 import pyarrow as pa
 import pytest
 from fastapi import FastAPI
@@ -17,6 +16,7 @@ from ecoscope_earthranger_io_core.arrow import (
     OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
     OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1,
     PATROLS_NESTED_SCHEMA_V1,
+    PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
 )
 from ecoscope_earthranger_io_core.client import ERWarehouseClient, _get_table
 from ecoscope_earthranger_io_core.query import ObservationsQuery
@@ -245,8 +245,8 @@ def test_client_get_patrols_minimal(app: FastAPI) -> None:
 
 
 def test_client_get_patrols_with_events(app: FastAPI) -> None:
-    """get_patrols returns a pandas DataFrame with events nested under each
-    patrol segment, each event carrying a synthesized geojson."""
+    """get_patrols returns a pa.Table of patrols with events nested under each
+    patrol segment (PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1)."""
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -267,75 +267,25 @@ def test_client_get_patrols_with_events(app: FastAPI) -> None:
             token="abc",
             warehouse_base_url="http://test",
         )
-        df = er_client.get_patrols(
+        table = er_client.get_patrols(
             since="2015-01-01T12:00:00",
             until="2015-03-01T12:00:00",
             patrol_type_value=["routine_patrol"],
             status=["done"],
         )
 
-    # The patrols workflow's get_patrols task does `.empty` on the result.
-    assert isinstance(df, pd.DataFrame)
-    assert not df.empty
-    assert "patrol_segments" in df.columns
+    assert isinstance(table, pa.Table)
+    assert table.schema == PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1
+    assert table.num_rows > 0
+    assert "patrol_segments" in table.column_names
 
-    row = df.iloc[0]
-    event = row["patrol_segments"][0]["events"][0]
-    geojson = event["geojson"]
-    assert geojson["type"] == "Feature"
-    assert isinstance(geojson["geometry"], dict)
-    assert geojson["geometry"]["type"] == "Point"
-    datetime_str = geojson["properties"]["datetime"]
-    assert isinstance(datetime_str, str)
-    # ISO 8601 string parses back to a datetime.
-    datetime.fromisoformat(datetime_str)
-
-
-def test_synthesize_event_geojson_int64_event_time() -> None:
-    """to_pandas surfaces a nested timestamp[ns, UTC] as raw int64 ns; the
-    helper must coerce it to a tz-aware (UTC) ISO string."""
-    import shapely.geometry
-    import shapely.wkb
-
-    from ecoscope_earthranger_io_core.client import _synthesize_event_geojson
-
-    # 2015-01-01T12:00:00Z expressed as nanoseconds since the epoch.
-    ns = int(pd.Timestamp("2015-01-01T12:00:00", tz="UTC").value)
-    event: dict = {
-        "geometry": shapely.wkb.dumps(shapely.geometry.Point(0.0, 1.0)),
-        "event_time": ns,
-    }
-    _synthesize_event_geojson(
-        event,
-        pd=pd,
-        shapely_geometry=shapely.geometry,
-        shapely_wkb=shapely.wkb,
-    )
-    datetime_str = event["geojson"]["properties"]["datetime"]
-    parsed = datetime.fromisoformat(datetime_str)
-    offset = parsed.utcoffset()
-    assert offset is not None  # tz-aware
-    assert offset.total_seconds() == 0  # UTC
-    assert event["geojson"]["geometry"]["type"] == "Point"
-
-
-def test_synthesize_event_geojson_null_geometry_and_time() -> None:
-    """An event with no geometry and no event_time yields a Feature with null
-    geometry and null datetime (ecoscope drops such rows downstream)."""
-    import shapely.geometry
-    import shapely.wkb
-
-    from ecoscope_earthranger_io_core.client import _synthesize_event_geojson
-
-    event: dict = {"geometry": None, "event_time": None}
-    _synthesize_event_geojson(
-        event,
-        pd=pd,
-        shapely_geometry=shapely.geometry,
-        shapely_wkb=shapely.wkb,
-    )
-    assert event["geojson"]["geometry"] is None
-    assert event["geojson"]["properties"]["datetime"] is None
+    segments = table.column("patrol_segments").to_pylist()[0]
+    assert isinstance(segments, list)
+    # events are nested under each segment.
+    assert "events" in segments[0]
+    events = segments[0]["events"]
+    assert isinstance(events, list)
+    assert "geometry" in events[0]
 
 
 def test_client_get_patrol_observations(app: FastAPI) -> None:
@@ -572,9 +522,9 @@ def test_client_query_engine_per_request_overrides_client_default(
 
 
 def test_client_get_patrol_events(app: FastAPI) -> None:
-    """get_patrol_events flattens get_patrols into a one-row-per-event
-    GeoDataFrame with geometry, tz-aware time, and patrol/segment context."""
-    import geopandas as gpd
+    """get_patrol_events flattens get_patrols' nested events to a flat pa.Table,
+    one row per event, with patrol/segment context attached."""
+    from ecoscope_earthranger_io_core.arrow import PATROL_EVENTS_FLAT_SCHEMA_V1
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -590,27 +540,24 @@ def test_client_get_patrol_events(app: FastAPI) -> None:
             token="abc",
             warehouse_base_url="http://test",
         )
-        gdf = er_client.get_patrol_events(
+        table = er_client.get_patrol_events(
             since="2015-01-01T12:00:00",
             until="2015-03-01T12:00:00",
         )
 
-    assert isinstance(gdf, gpd.GeoDataFrame)
-    assert len(gdf) == 1
-    row = gdf.iloc[0]
+    assert isinstance(table, pa.Table)
+    assert table.schema.equals(PATROL_EVENTS_FLAT_SCHEMA_V1)
+    # the canned example app has one patrol -> one segment -> one event
+    assert table.num_rows == 1
+    row = table.to_pylist()[0]
     assert row["event_type"] == "wildlife_sighting"
-    assert row["geometry"].geom_type == "Point"
-    # time is tz-aware (UTC), ns-resolution
-    assert pd.api.types.is_datetime64_ns_dtype(gdf["time"])
-    assert gdf["time"].dt.tz is not None
-    # patrol/segment context attached from get_patrols
     assert row["patrol_id"] == "patrol1"
-    assert row["patrol_serial_number"] == 1000
     assert row["patrol_segment_id"] == "segment1"
+    assert row["geometry"] is not None
 
 
 def test_client_get_patrol_events_event_type_filter(app: FastAPI) -> None:
-    """A non-matching event_type filter yields an empty result."""
+    """A non-matching event_type filter yields an empty (schema-typed) table."""
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -626,9 +573,10 @@ def test_client_get_patrol_events_event_type_filter(app: FastAPI) -> None:
             token="abc",
             warehouse_base_url="http://test",
         )
-        result = er_client.get_patrol_events(event_type=["nonexistent_type"])
+        table = er_client.get_patrol_events(event_type=["nonexistent_type"])
 
-    assert result.empty
+    assert isinstance(table, pa.Table)
+    assert table.num_rows == 0
 
 
 # -------------------------------------------------------------------------
@@ -1034,53 +982,16 @@ def test_client_get_event_schema_json(app: FastAPI) -> None:
     assert set(result) == {"species", "count", "seen_at"}
 
 
-def test_client_get_event_type_display_names(app: FastAPI) -> None:
-    """Display-name resolution maps values to displays, orphans fall back to raw."""
-    import pandas as pd
-
-    with patch.object(
-        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
-    ):
-        er_client = ERWarehouseClient(
-            server="some-site.pamdas.org",
-            token="abc",
-            warehouse_base_url="http://test",
-        )
-        df = pd.DataFrame(
-            {"event_type": ["wildlife_sighting", "poaching", "orphan_type"]}
-        )
-        result = er_client.get_event_type_display_names_from_events(df)
-    assert list(result["event_type_display"]) == [
-        "Wildlife Sighting",
-        "Poaching",
-        "orphan_type",
-    ]
-
-
-def test_client_get_event_type_display_names_always_with_orphan(app: FastAPI) -> None:
-    """append_category_names='always': known types get the category value appended;
-    orphans (no category_value) keep their raw-value display, not NaN."""
-    import pandas as pd
-
-    with patch.object(
-        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
-    ):
-        er_client = ERWarehouseClient(
-            server="some-site.pamdas.org",
-            token="abc",
-            warehouse_base_url="http://test",
-        )
-        df = pd.DataFrame(
-            {"event_type": ["wildlife_sighting", "poaching", "orphan_type"]}
-        )
-        result = er_client.get_event_type_display_names_from_events(
-            df, append_category_names="always"
-        )
-    assert list(result["event_type_display"]) == [
-        "Wildlife Sighting (monitoring)",
-        "Poaching (security)",
-        "orphan_type",
-    ]
+def test_client_get_event_type_display_names_not_implemented() -> None:
+    """Display-name enrichment is a DataFrame op; the client returns only
+    pyarrow types, so this raises (resolve via get_event_types() in a task)."""
+    er_client = ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+        warehouse_base_url="http://test",
+    )
+    with pytest.raises(NotImplementedError):
+        er_client.get_event_type_display_names_from_events(object())
 
 
 # -------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import struct
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -5,9 +6,6 @@ import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pyarrow as pa
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-
-import shapely.geometry
-import shapely.wkb
 
 from ecoscope_earthranger_io_core.arrow import (
     EVENT_TYPES_SCHEMA_V1,
@@ -165,7 +163,9 @@ patrols = APIRouter(prefix="/patrols")
 def _build_patrols_with_events_record_batch() -> pa.RecordBatch:
     """Build a canned patrols-with-events RecordBatch (one patrol, one segment,
     one event) conforming to PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1."""
-    event_geometry = shapely.wkb.dumps(shapely.geometry.Point(0.0, 1.0))
+    # WKB for POINT (0 1): little-endian byte order, geometry type 1 (Point),
+    # then the x and y doubles.
+    event_geometry = struct.pack("<BIdd", 1, 1, 0.0, 1.0)
     event = {
         "id": "event1",
         "serial_number": 1,

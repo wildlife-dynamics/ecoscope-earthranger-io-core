@@ -6,13 +6,14 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
-from typing import Any, Literal
+from typing import Any, Literal, overload
 from urllib.parse import urlparse
 
 import httpx
 import pyarrow as pa
 from pydantic import BaseModel, PrivateAttr, SecretStr, field_validator
 
+from ecoscope_earthranger_io_core.arrow import PATROL_EVENTS_FLAT_SCHEMA_V1
 from ecoscope_earthranger_io_core.query import (
     EventsQuery,
     EventTypeSchemaQuery,
@@ -69,37 +70,6 @@ async def _get_table(
         )
     table = pa.ipc.open_stream(source).read_all()
     return table
-
-
-def _synthesize_event_geojson(
-    event: dict, *, pd: Any, shapely_geometry: Any, shapely_wkb: Any
-) -> None:
-    """Attach an ER-native ``geojson`` to a nested patrol event in place.
-
-    Builds ``{"type": "Feature", "geometry": ..., "properties": {"datetime":
-    ...}}`` from the event's WKB ``geometry`` and ``event_time``. ``geometry``
-    is ``None`` when the event has none; ``datetime`` is a tz-aware ISO string
-    (or ``None``). ``event_time`` may surface from ``to_pandas()`` either as a
-    pandas Timestamp or as raw int64 nanoseconds-since-epoch inside the struct
-    dict (UTC by schema contract) -- both are handled.
-    """
-    geometry_wkb = event.get("geometry")
-    if geometry_wkb is not None:
-        geometry = shapely_geometry.mapping(shapely_wkb.loads(geometry_wkb))
-    else:
-        geometry = None
-    event_time = event.get("event_time")
-    if event_time is None or pd.isna(event_time):
-        datetime_str = None
-    elif hasattr(event_time, "isoformat"):
-        datetime_str = event_time.isoformat()
-    else:
-        datetime_str = pd.Timestamp(event_time, unit="ns", tz="UTC").isoformat()
-    event["geojson"] = {
-        "type": "Feature",
-        "geometry": geometry,
-        "properties": {"datetime": datetime_str},
-    }
 
 
 class ERWarehouseClient(BaseModel):
@@ -371,7 +341,7 @@ class ERWarehouseClient(BaseModel):
         parse_detail_datetimes: bool,
         fmt: Literal["arrow", "json"],
         query_engine: QueryEngine = "auto",
-    ) -> "pa.Schema | dict[str, str]":
+    ) -> "pa.Schema | dict[str, Any]":
         """Fetch the event_details schema from the /events/schema endpoint.
 
         Unlike the streaming endpoints, /events/schema returns a bare Arrow
@@ -568,14 +538,12 @@ class ERWarehouseClient(BaseModel):
         sub_page_size: int | None = None,
         patrols_overlap_daterange: bool = True,
         query_engine: QueryEngine | None = None,
-    ) -> Any:
+    ) -> pa.Table:
         """Get patrols with their events from the EarthRanger Data Warehouse.
 
-        Returns patrols with events nested under each patrol segment at
-        ``patrol_segments[].events[]``, in the ER-native shape. Each event
-        carries a synthesized ``geojson`` (``{"type": "Feature", "geometry":
-        ..., "properties": {"datetime": ...}}``) derived from the event's WKB
-        ``geometry`` and its ``event_time``.
+        Returns a ``pa.Table`` of patrols with events nested under each patrol
+        segment at ``patrol_segments[].events[]`` (event geometry is WKB), in the
+        ER-native shape.
 
         Args:
             since: Start of time range (ISO 8601 format). Optional.
@@ -590,14 +558,11 @@ class ERWarehouseClient(BaseModel):
                 setting (``self.query_engine``).
 
         Returns:
-            A pandas DataFrame, one row per patrol, with a ``patrol_segments``
-            column whose segments each carry an ``events`` list of event dicts
-            (each with a synthesized ``geojson``).
+            PyArrow Table of patrols, one row per patrol, with a
+            ``patrol_segments`` list column whose segments each carry a nested
+            ``events`` list (WKB geometry).
+            Schema: PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.
         """
-        import pandas as pd
-        import shapely.geometry
-        import shapely.wkb
-
         engine = query_engine or self.query_engine
         query = PatrolsQuery(
             tenant_domain=self.server,
@@ -608,24 +573,7 @@ class ERWarehouseClient(BaseModel):
             patrols_overlap_daterange=patrols_overlap_daterange,
             include_events=True,
         )
-        table = self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
-        df = table.to_pandas()
-
-        # to_pandas() surfaces a null list as None and a present list as a numpy
-        # array, so guard with `is not None` (truthiness on an array is
-        # ambiguous) rather than `or ()`.
-        for segments in df["patrol_segments"]:
-            for segment in segments if segments is not None else ():
-                events = segment.get("events")
-                for event in events if events is not None else ():
-                    _synthesize_event_geojson(
-                        event,
-                        pd=pd,
-                        shapely_geometry=shapely.geometry,
-                        shapely_wkb=shapely.wkb,
-                    )
-
-        return df
+        return self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
 
     def get_patrol_events(
         self,
@@ -636,18 +584,15 @@ class ERWarehouseClient(BaseModel):
         status: list[str] | None = None,
         drop_null_geometry: bool = False,
         sub_page_size: int | None = None,
-        *,
-        force_point_geometry: bool = True,
         query_engine: QueryEngine | None = None,
-    ) -> Any:
-        """Get patrol events as a flat GeoDataFrame, one row per event.
+    ) -> pa.Table:
+        """Get patrol events as a flat ``pa.Table``, one row per event.
 
-        Convenience built on ``get_patrols``: it fetches patrols with their
-        events nested under each segment and flattens them to one row per event,
-        attaching the patrol/segment context (mirrors EarthRangerIO's
-        ``get_patrol_events`` = ``get_patrols`` + unpack). Each event's geometry
-        comes from its synthesized ``geojson`` and ``time`` from
-        ``geojson.properties.datetime`` (tz-aware UTC).
+        Fetches patrols with their nested events via ``get_patrols`` and
+        flattens ``patrol_segments[].events[]`` to one row per event, attaching
+        the patrol/segment context (``patrol_id``, ``patrol_serial_number``,
+        ``patrol_segment_id``, ``patrol_type``, ``patrol_start_time``). Event
+        geometry is the geoarrow WKB column (EPSG:4326).
 
         Args:
             since: Start of time range (ISO 8601 format). Optional.
@@ -655,24 +600,17 @@ class ERWarehouseClient(BaseModel):
             patrol_type_value: List of patrol type values to filter patrols by.
             event_type: If given, keep only events whose ``event_type`` is in the
                 list.
-            status: List of patrol statuses to filter by (e.g. ["done"]).
-            drop_null_geometry: If True, drop events with no geometry.
+            status: List of patrol statuses to filter by (e.g., ["done"]).
+            drop_null_geometry: If True, exclude events with no geometry.
             sub_page_size: Ignored (for interface compatibility).
-            force_point_geometry: If True (default), reduce non-point geometries
-                to their centroid (parity with EarthRangerIO).
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
 
         Returns:
-            A geopandas GeoDataFrame (EPSG:4326), one row per patrol event, or an
-            empty pandas DataFrame when no events match. ``patrol_subject`` is the
-            segment ``leader_id`` (the warehouse does not carry the leader name).
+            PyArrow Table, one row per patrol event.
+            Schema: PATROL_EVENTS_FLAT_SCHEMA_V1.
         """
-        import geopandas as gpd
-        import pandas as pd
-        from shapely.geometry import shape
-
-        patrols_df = self.get_patrols(
+        patrols = self.get_patrols(
             since=since,
             until=until,
             patrol_type_value=patrol_type_value,
@@ -680,55 +618,26 @@ class ERWarehouseClient(BaseModel):
             sub_page_size=sub_page_size,
             query_engine=query_engine,
         )
-
-        events: list[dict] = []
-        for _, patrol in patrols_df.iterrows():
-            segments = patrol.get("patrol_segments")
-            for segment in segments if segments is not None else ():
-                seg_events = segment.get("events")
-                for event in seg_events if seg_events is not None else ():
-                    if event_type and event.get("event_type") not in event_type:
+        wanted_types = set(event_type or [])
+        rows: list[dict] = []
+        for patrol in patrols.to_pylist():
+            for segment in patrol.get("patrol_segments") or []:
+                for event in segment.get("events") or []:
+                    if wanted_types and event.get("event_type") not in wanted_types:
                         continue
-                    geojson = event.get("geojson") or {}
-                    try:
-                        geom = (
-                            shape(geojson["geometry"])
-                            if geojson.get("geometry")
-                            else None
-                        )
-                    except Exception:
-                        geom = None
-                    if force_point_geometry and geom is not None:
-                        geom = geom.centroid
-                    record = {k: v for k, v in event.items() if k != "geojson"}
-                    record.update(
-                        geometry=geom,
-                        time=(geojson.get("properties") or {}).get("datetime"),
-                        patrol_id=patrol.get("id"),
-                        patrol_serial_number=patrol.get("serial_number"),
-                        patrol_segment_id=segment.get("id"),
-                        patrol_start_time=segment.get("time_range_start"),
-                        patrol_type=segment.get("patrol_type"),
-                        patrol_subject=segment.get("leader_id"),
+                    if drop_null_geometry and event.get("geometry") is None:
+                        continue
+                    rows.append(
+                        {
+                            **event,
+                            "patrol_id": patrol.get("id"),
+                            "patrol_serial_number": patrol.get("serial_number"),
+                            "patrol_segment_id": segment.get("id"),
+                            "patrol_type": segment.get("patrol_type"),
+                            "patrol_start_time": segment.get("time_range_start"),
+                        }
                     )
-                    events.append(record)
-
-        events_df = pd.DataFrame(events)
-        if events_df.empty:
-            return events_df
-        if drop_null_geometry:
-            events_df = events_df.dropna(subset="geometry").reset_index(drop=True)
-        events_df = events_df.dropna(subset="time").reset_index(drop=True)
-        # tz-aware UTC datetimes for the time columns (parity with clean_time_cols).
-        # Force ns resolution: newer pandas parses ISO strings as us, but
-        # ecoscope's EventGDFSchema requires datetime64[ns] (tz-aware).
-        for col in ("time", "created_at", "updated_at", "patrol_start_time"):
-            if col in events_df.columns:
-                events_df[col] = pd.to_datetime(
-                    events_df[col], utc=True, errors="coerce"
-                ).dt.as_unit("ns")
-
-        return gpd.GeoDataFrame(events_df, geometry="geometry", crs=4326)
+        return pa.Table.from_pylist(rows, schema=PATROL_EVENTS_FLAT_SCHEMA_V1)
 
     def get_patrol_observations(
         self,
@@ -913,6 +822,26 @@ class ERWarehouseClient(BaseModel):
             self._fetch_event_types_arrow(query, query_engine=engine)
         )
 
+    @overload
+    def get_event_schema(
+        self,
+        event_type: str,
+        *,
+        parse_detail_datetimes: bool = ...,
+        format: Literal["arrow"] = ...,
+        query_engine: QueryEngine | None = ...,
+    ) -> pa.Schema: ...
+
+    @overload
+    def get_event_schema(
+        self,
+        event_type: str,
+        *,
+        parse_detail_datetimes: bool = ...,
+        format: Literal["json"],
+        query_engine: QueryEngine | None = ...,
+    ) -> dict[str, Any]: ...
+
     def get_event_schema(
         self,
         event_type: str,
@@ -920,7 +849,7 @@ class ERWarehouseClient(BaseModel):
         parse_detail_datetimes: bool = False,
         format: Literal["arrow", "json"] = "arrow",
         query_engine: QueryEngine | None = None,
-    ) -> "pa.Schema | dict[str, str]":
+    ) -> "pa.Schema | dict[str, Any]":
         """Discover the typed ``event_details`` schema for one event type.
 
         Reads the warehouse ``/events/schema`` discovery endpoint, which serves
@@ -942,7 +871,7 @@ class ERWarehouseClient(BaseModel):
                 setting (``self.query_engine``).
 
         Returns:
-            A ``pa.Schema`` (format="arrow") or a ``dict[str, str]``
+            A ``pa.Schema`` (format="arrow") or a ``dict[str, Any]``
             (format="json").
         """
         engine = query_engine or self.query_engine
@@ -961,71 +890,15 @@ class ERWarehouseClient(BaseModel):
         events_gdf: Any,
         append_category_names: str = "duplicates",
     ) -> Any:
-        """Append an ``event_type_display`` column to an events DataFrame.
+        """Not implemented; the DWH client returns only pyarrow types.
 
-        Operates on an events DataFrame whose event type column is named
-        ``event_type`` (NOT a raw warehouse events table, whose column is
-        ``event_type_value``).
-
-        Event types present on events but missing from the warehouse event-type
-        listing (e.g. deleted/orphan types still attached to historical events)
-        fall back to their raw ``event_type`` value as the display, rather than
-        raising.
-
-        Note:
-            The warehouse ``/event_types`` listing exposes ``category_value`` (the
-            category slug) but does not serve a category *display* name. When
-            ``append_category_names`` triggers an append, the appended label is the
-            category *value* (slug), not a display name, in the ER
-            "Type (Category)" format.
-
-        Args:
-            events_gdf: A pandas/geopandas DataFrame with an ``event_type`` column.
-            append_category_names: One of ``"always"``, ``"duplicates"`` (default),
-                or ``"never"``. ``"always"`` appends the category value for all
-                rows; ``"duplicates"`` appends only where display names collide;
-                ``"never"`` does not append.
-
-        Returns:
-            The DataFrame with an added ``event_type_display`` column.
+        The ``value`` -> ``display`` (and ``category_value``) mapping needed to
+        resolve event-type display names is available from ``get_event_types()``
+        (a ``pa.Table``).
         """
-        if "event_type" not in events_gdf.columns:
-            raise KeyError("events_gdf must have an 'event_type' column")
-
-        event_types = self.get_event_types().to_pandas()
-        display_lookup = dict(zip(event_types["value"], event_types["display"]))
-        events_gdf["event_type_display"] = (
-            events_gdf["event_type"]
-            .map(display_lookup)
-            .fillna(events_gdf["event_type"])
+        raise NotImplementedError(
+            "get_event_type_display_names_from_events is not implemented in "
+            "ERWarehouseClient, which returns only pyarrow types. The "
+            "value->display mapping needed to resolve event-type display names "
+            "is available from get_event_types() (a pa.Table)."
         )
-
-        if append_category_names == "never":
-            return events_gdf
-
-        category_lookup = dict(zip(event_types["value"], event_types["category_value"]))
-
-        if append_category_names == "always":
-            mask = events_gdf["event_type"].notna()
-        elif append_category_names == "duplicates":
-            mask = (
-                events_gdf.groupby("event_type_display")["event_type"].transform(
-                    "nunique"
-                )
-                > 1
-            )
-        else:
-            return events_gdf
-
-        category_value = events_gdf.loc[mask, "event_type"].map(category_lookup)
-        # Only append where a category_value exists; orphan/category-less types
-        # keep their plain display (concatenating a NaN would wipe it out).
-        append_mask = category_value.notna()
-        rows = category_value.index[append_mask]
-        events_gdf.loc[rows, "event_type_display"] = (
-            events_gdf.loc[rows, "event_type_display"]
-            + " ("
-            + category_value[append_mask]
-            + ")"
-        )
-        return events_gdf

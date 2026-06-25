@@ -236,6 +236,33 @@ PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 = pa.schema(
     ]
 )
 
+# Flat one-row-per-event schema produced by the client by flattening the nested
+# PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 (events extracted from each segment, with
+# their patrol/segment context attached). The event fields mirror
+# PATROL_EVENT_STRUCT_V1, except ``geometry`` is the geoarrow WKB extension here
+# (a top-level column can carry it, unlike a list<struct> field).
+PATROL_EVENTS_FLAT_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("serial_number", pa.int64()),
+        ("event_type", pa.string()),
+        ("event_time", pa.timestamp("ns", tz="UTC")),
+        ("priority", pa.int64()),
+        ("title", pa.string()),
+        ("state", pa.string()),
+        ("updated_at", pa.string()),
+        ("created_at", pa.string()),
+        ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
+        ("is_collection", pa.bool_()),
+        ("event_details", pa.string()),
+        ("patrol_id", pa.string()),
+        ("patrol_serial_number", pa.int64()),
+        ("patrol_segment_id", pa.string()),
+        ("patrol_type", pa.string()),
+        ("patrol_start_time", pa.string()),
+    ]
+)
+
 # Listing schema for the warehouse ``GET /event_types`` endpoint — the ecoscope
 # ``get_event_types`` contract (display-name resolution).
 EVENT_TYPES_SCHEMA_V1 = pa.schema(

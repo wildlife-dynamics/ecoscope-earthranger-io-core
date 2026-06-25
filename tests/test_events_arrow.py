@@ -5,6 +5,7 @@ from ecoscope_earthranger_io_core.arrow import (
     EVENT_TYPES_SCHEMA_V1,
     EVENTS_SCHEMA_V1,
     PATROL_EVENT_STRUCT_V1,
+    PATROL_EVENTS_FLAT_SCHEMA_V1,
     PATROL_SEGMENT_STRUCT_V1,
     PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1,
     PATROLS_NESTED_SCHEMA_V1,
@@ -13,6 +14,33 @@ from ecoscope_earthranger_io_core.arrow import (
     SchemaChoices,
     TRANSFORMS,
 )
+
+
+def test_patrol_events_flat_schema_v1_fields():
+    """The flat one-row-per-event schema = the event struct fields (geometry as
+    geoarrow WKB) + the patrol/segment context columns."""
+    expected = [
+        ("id", pa.string()),
+        ("serial_number", pa.int64()),
+        ("event_type", pa.string()),
+        ("event_time", pa.timestamp("ns", tz="UTC")),
+        ("priority", pa.int64()),
+        ("title", pa.string()),
+        ("state", pa.string()),
+        ("updated_at", pa.string()),
+        ("created_at", pa.string()),
+        ("geometry", ga.wkb().with_crs("EPSG:4326")),
+        ("is_collection", pa.bool_()),
+        ("event_details", pa.string()),
+        ("patrol_id", pa.string()),
+        ("patrol_serial_number", pa.int64()),
+        ("patrol_segment_id", pa.string()),
+        ("patrol_type", pa.string()),
+        ("patrol_start_time", pa.string()),
+    ]
+    assert PATROL_EVENTS_FLAT_SCHEMA_V1.names == [n for n, _ in expected]
+    for name, typ in expected:
+        assert PATROL_EVENTS_FLAT_SCHEMA_V1.field(name).type == typ
 
 
 def test_event_types_schema_v1_fields():
