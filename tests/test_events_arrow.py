@@ -50,6 +50,7 @@ def test_event_types_schema_v1_fields():
         ("value", pa.string()),
         ("display", pa.string()),
         ("category_value", pa.string()),
+        ("category_display", pa.string()),
         ("is_active", pa.bool_()),
         ("is_collection", pa.bool_()),
     ]
@@ -132,8 +133,8 @@ def test_patrol_event_struct_v1_fields():
 
 
 def test_patrol_segment_with_events_struct_v1_fields():
-    """The with-events segment struct = the lean segment struct's fields plus a
-    trailing events list of PATROL_EVENT_STRUCT_V1."""
+    """The with-events segment struct = the lean segment struct's fields plus the
+    resolved ``leader_name`` and a trailing events list of PATROL_EVENT_STRUCT_V1."""
     segment_names = [
         PATROL_SEGMENT_STRUCT_V1.field(i).name
         for i in range(PATROL_SEGMENT_STRUCT_V1.num_fields)
@@ -142,12 +143,13 @@ def test_patrol_segment_with_events_struct_v1_fields():
         PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.field(i).name
         for i in range(PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.num_fields)
     ]
-    assert with_events_names == segment_names + ["events"]
+    assert with_events_names == segment_names + ["leader_name", "events"]
     for name in segment_names:
         assert (
             PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.field(name).type
             == PATROL_SEGMENT_STRUCT_V1.field(name).type
         )
+    assert PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.field("leader_name").type == pa.string()
     assert PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1.field("events").type == pa.list_(
         PATROL_EVENT_STRUCT_V1
     )

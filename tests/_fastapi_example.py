@@ -191,6 +191,7 @@ def _build_patrols_with_events_record_batch() -> pa.RecordBatch:
         "scheduled_end": "2015-01-01T14:00:00+00:00",
         "start_location": None,
         "end_location": None,
+        "leader_name": "Ranger Zero",
         "events": [event],
     }
     patrol = {
@@ -374,6 +375,7 @@ def _build_event_types_record_batch() -> pa.RecordBatch:
             "value": "wildlife_sighting",
             "display": "Wildlife Sighting",
             "category_value": "monitoring",
+            "category_display": "Monitoring",
             "is_active": True,
             "is_collection": False,
         },
@@ -382,6 +384,7 @@ def _build_event_types_record_batch() -> pa.RecordBatch:
             "value": "poaching",
             "display": "Poaching",
             "category_value": "security",
+            "category_display": "Security",
             "is_active": True,
             "is_collection": False,
         },

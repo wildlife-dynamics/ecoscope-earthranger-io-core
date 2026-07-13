@@ -805,8 +805,9 @@ class ERWarehouseClient(BaseModel):
     def get_event_types(self, query_engine: QueryEngine | None = None) -> pa.Table:
         """Get event types from the EarthRanger Data Warehouse.
 
-        The returned table provides the ``value`` -> ``display`` mapping used to
-        resolve event type display names.
+        The returned table provides the ``value`` -> ``display`` (and
+        ``category_value`` -> ``category_display``) mapping used to resolve event
+        type and category display names.
 
         Args:
             query_engine: Backend engine to use. Defaults to the client-level
@@ -814,7 +815,8 @@ class ERWarehouseClient(BaseModel):
 
         Returns:
             PyArrow Table with event types. Schema: EVENT_TYPES_SCHEMA_V1
-            (id, value, display, category_value, is_active, is_collection).
+            (id, value, display, category_value, category_display, is_active,
+            is_collection).
         """
         engine = query_engine or self.query_engine
         query = EventTypesQuery(tenant_domain=self.server)
