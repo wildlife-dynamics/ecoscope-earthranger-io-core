@@ -210,11 +210,16 @@ PATROL_EVENT_STRUCT_V1 = pa.struct(
 )
 
 # Patrol-segment struct carrying its events. This is the segment struct used by
-# the with-events schema only: it is PATROL_SEGMENT_STRUCT_V1's fields plus a
-# trailing ``events`` list. PATROL_SEGMENT_STRUCT_V1 itself is left untouched.
+# the with-events schema only: it is PATROL_SEGMENT_STRUCT_V1's fields plus the
+# resolved segment ``leader_name`` (from a subjects join on ``leader_id``) and a
+# trailing ``events`` list. PATROL_SEGMENT_STRUCT_V1 itself is left untouched, so
+# the lean/flat patrols schemas do not require the leader-name resolution.
 PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1 = pa.struct(
     list(PATROL_SEGMENT_STRUCT_V1)
-    + [pa.field("events", pa.list_(PATROL_EVENT_STRUCT_V1))]
+    + [
+        pa.field("leader_name", pa.string()),
+        pa.field("events", pa.list_(PATROL_EVENT_STRUCT_V1)),
+    ]
 )
 
 # Nested patrols schema WITH events — selected only when include_events=true.
@@ -271,6 +276,7 @@ EVENT_TYPES_SCHEMA_V1 = pa.schema(
         ("value", pa.string()),
         ("display", pa.string()),
         ("category_value", pa.string()),
+        ("category_display", pa.string()),
         ("is_active", pa.bool_()),
         ("is_collection", pa.bool_()),
     ]
