@@ -42,9 +42,12 @@ OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1 = pa.schema(
     [
         ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
         ("fixtime", pa.timestamp("ns", tz="UTC")),
+        # groupby_col carries the patrol id (one trajectory per patrol), matching
+        # EarthRangerIO.get_patrol_observations. The leader subject is exposed via
+        # patrol_subject (name) and extra__subject_id (id) rather than groupby_col.
         ("groupby_col", pa.string()),
-        ("extra__subject__name", pa.string()),
-        ("extra__subject__subject_subtype", pa.string()),
+        ("extra__subject_id", pa.string()),
+        ("patrol_subject", pa.string()),
         ("extra__source", pa.string()),
         ("junk_status", pa.bool_()),
         ("patrol_id", pa.string()),
