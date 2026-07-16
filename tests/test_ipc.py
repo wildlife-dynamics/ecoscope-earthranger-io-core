@@ -203,7 +203,7 @@ def test_client_get_patrol_observations_with_patrol_filter(
         for col in expected_columns:
             assert col in table.column_names, f"Missing expected column: {col}"
 
-        # ERDW-262: groupby_col must carry the patrol id (one trajectory per
+        # ERDW-264: groupby_col must carry the patrol id (one trajectory per
         # patrol), not the leader subject id, so trajectories aren't collapsed
         # by leader.
         assert (
@@ -215,7 +215,7 @@ def test_client_get_patrol_observations_with_patrol_filter(
         assert len(set(table.column("groupby_col").to_pylist())) == len(
             set(table.column("patrol_id").to_pylist())
         )
-        # ERDW-262: patrol_subject (leader name) must be populated, not null —
+        # ERDW-264: patrol_subject (leader name) must be populated, not null —
         # this is the trajectory-legend color column.
         patrol_subject = table.column("patrol_subject").to_pylist()
         assert all(v == "mock-subject-name" for v in patrol_subject)
@@ -356,7 +356,7 @@ def test_client_get_patrol_observations(app: FastAPI) -> None:
                 f"Missing expected column: {col}"
             )
 
-        # ERDW-262: groupby_col carries patrol id, patrol_subject is populated,
+        # ERDW-264: groupby_col carries patrol id, patrol_subject is populated,
         # and the subject-group leader columns are absent.
         assert (
             observations_table.column("groupby_col").to_pylist()
