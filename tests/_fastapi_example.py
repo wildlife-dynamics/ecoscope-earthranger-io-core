@@ -62,19 +62,23 @@ def _patrol_observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBa
     junk_status = pa.array([False] * earthranger_rb.num_rows, type=pa.bool_())
     add_junk_status = earthranger_rb.append_column("junk_status", junk_status)
 
-    # Rename columns to match ECOSCOPE_SLIM_V1 structure and EarthRangerIO field names
+    # Rename columns to match ECOSCOPE_SLIM_V1 structure and EarthRangerIO field names.
+    # The leader subject is surfaced as patrol_subject (name) + extra__subject_id (id),
+    # matching EarthRangerIO.get_patrol_observations; groupby_col carries the patrol id.
     renamed = add_junk_status.rename_columns(
         {
             "location": "geometry",
-            "subject_id": "groupby_col",
+            "subject_id": "extra__subject_id",
             "recorded_at": "fixtime",
-            "subject_name": "extra__subject__name",
-            "subject_subtype_id": "extra__subject__subject_subtype",
+            "subject_name": "patrol_subject",
             "source_id": "extra__source",
             "patrol_type_value": "patrol_type__value",
             "patrol_type_display": "patrol_type__display",
         }
     )
+
+    # groupby_col carries the patrol id so trajectories are grouped one-per-patrol.
+    renamed = renamed.append_column("groupby_col", renamed.column("patrol_id"))
 
     # Add timezone to fixtime (workaround for missing +00:00 in EarthRanger data)
     fixtime_idx = renamed.schema.get_field_index("fixtime")
@@ -85,13 +89,13 @@ def _patrol_observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBa
     result = renamed.drop_columns(["fixtime"])
     result = result.add_column(fixtime_idx, "fixtime", fixtime_utc)
 
-    # Reorder columns to match target schema order
+    # Reorder columns to match target schema order (subject_subtype_id is dropped here)
     target_column_order = [
         "geometry",
         "fixtime",
         "groupby_col",
-        "extra__subject__name",
-        "extra__subject__subject_subtype",
+        "extra__subject_id",
+        "patrol_subject",
         "extra__source",
         "junk_status",
         "patrol_id",

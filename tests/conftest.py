@@ -56,8 +56,10 @@ def _mock_observations_generator(
     if subject_ids is None:
         subject_ids = ["subject1", "subject2"]
 
-    # Mock patrol data for testing
-    mock_patrol_id = str(uuid.uuid4())
+    # Mock patrol data for testing. Each leader subject maps to a distinct
+    # patrol so multi-subject batches exercise one-trajectory-per-patrol
+    # grouping: groupby_col must equal patrol_id (not subject_id).
+    mock_patrol_ids = {sid: f"patrol-{sid}" for sid in subject_ids}
     mock_patrol_serial = 12345
 
     for dt in _split_datetime_range_by_delta(
@@ -92,7 +94,7 @@ def _mock_observations_generator(
             if include_patrol_details:
                 record.update(
                     {
-                        "patrol_id": mock_patrol_id,
+                        "patrol_id": mock_patrol_ids[subject_id],
                         "patrol_title": "Mock Patrol Title",
                         "patrol_serial_number": mock_patrol_serial,
                         "patrol_status": "done",
