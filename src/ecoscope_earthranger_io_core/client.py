@@ -399,6 +399,7 @@ class ERWarehouseClient(BaseModel):
         until: str | None = None,
         query_engine: QueryEngine | None = None,
         filter: int | None = None,
+        include_subject_additional: bool = False,
     ) -> pa.Table:
         """Get observations for a subject group from EarthRanger Data Warehouse.
 
@@ -412,6 +413,10 @@ class ERWarehouseClient(BaseModel):
             until: End of time range (ISO 8601 format).
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
+            include_subject_additional: Populate the subject ``additional`` JSON in
+                ``extra__subject__additional``. Defaults to False, in which case the
+                column is present but null and the JSON is not read. Opt in only when
+                a consumer needs it (e.g. the ``rgb`` key for per-subject colouring).
 
         Returns:
             PyArrow Table with observations data.
@@ -427,6 +432,7 @@ class ERWarehouseClient(BaseModel):
             range_end=datetime.fromisoformat(until),
             subject_group_name=subject_group_name,
             exclusion_flags=filter,
+            include_subject_additional=include_subject_additional,
         )
         table = self._run_async(
             self._fetch_observations_arrow(query, query_engine=engine)

@@ -30,6 +30,15 @@ _PATROLS_OVERLAP_DATERANGE_DESCRIPTION = (
 )
 
 
+_INCLUDE_SUBJECT_ADDITIONAL_DESCRIPTION = (
+    "If True, populate the subject `additional` JSON (surfaced as "
+    "`extra__subject__additional`); if False (default), the column is still "
+    "present in the schema but null, and the underlying JSON is not read. "
+    "Opt in only when a consumer needs it -- e.g. per-subject track colouring "
+    "reads the `rgb` key -- since it is a wide, free-form column."
+)
+
+
 class ObservationsQuery(_WarehouseQuery):
     """An EarthRanger observations query.
 
@@ -71,6 +80,10 @@ class ObservationsQuery(_WarehouseQuery):
         description=_PATROLS_OVERLAP_DATERANGE_DESCRIPTION,
     )
     include_patrol_details: bool = False
+    include_subject_additional: bool = Field(
+        default=False,
+        description=_INCLUDE_SUBJECT_ADDITIONAL_DESCRIPTION,
+    )
     exclusion_flags: int | None = Field(
         default=None,
         ge=0,
@@ -93,6 +106,10 @@ class ObservationsQuery(_WarehouseQuery):
         patrol_status: list[PatrolStatus] | None = Query(None),
         patrols_overlap_daterange: bool = Query(True),
         include_patrol_details: bool = Query(False),
+        include_subject_additional: bool = Query(
+            False,
+            description=_INCLUDE_SUBJECT_ADDITIONAL_DESCRIPTION,
+        ),
         exclusion_flags: int | None = Query(
             None,
             ge=0,
@@ -113,6 +130,7 @@ class ObservationsQuery(_WarehouseQuery):
             patrol_status=patrol_status,
             patrols_overlap_daterange=patrols_overlap_daterange,
             include_patrol_details=include_patrol_details,
+            include_subject_additional=include_subject_additional,
             exclusion_flags=exclusion_flags,
         )
 

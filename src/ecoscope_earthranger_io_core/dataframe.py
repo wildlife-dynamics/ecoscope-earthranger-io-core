@@ -36,3 +36,8 @@ class ObservationsGDFSchema(pa.DataFrameModel):
         nullable=True
     )
     extra__subject__sex: pa_typing.Series[str] | None = pa.Field(nullable=True)
+    # Raw subject `additional` JSON as a string. EarthRanger declares no schema for this
+    # field (unlike event types, which carry an EventType.schema), so it is validated as
+    # an opaque string and parsed by consumers -- e.g. ecoscope's `assign_subject_colors`
+    # reads the `rgb` key for per-subject track colouring.
+    extra__subject__additional: pa_typing.Series[str] | None = pa.Field(nullable=True)

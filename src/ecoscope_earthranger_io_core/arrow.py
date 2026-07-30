@@ -20,6 +20,21 @@ OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
         ("subject_id", pa.string()),
         ("subject_name", pa.string()),
         ("subject_subtype_id", pa.string()),
+        # Raw `subjects.additional` JSON. EarthRanger declares no schema for it (unlike
+        # event types, which carry an EventType.schema), so it is carried verbatim as a
+        # string and parsed by consumers. Holds the per-subject `rgb` used for track
+        # colouring, plus `sex`/`region`/`country`/`species`.
+        #
+        # NULL means "not requested", and stores must keep it that way:
+        #     include_subject_additional -> COALESCE(s.additional, '{}')
+        #     otherwise                  -> CAST(NULL AS STRING)
+        # The COALESCE is required because the subjects join is a LEFT JOIN (the same
+        # reason the sibling columns use COALESCE(s.name, 'unknown')); a bare
+        # `s.additional` would also yield NULL for observations whose source has no
+        # subjectsource assignment, collapsing "not requested" and "subject
+        # unresolved" into one value. `{}` is safe as the resolved-but-empty marker:
+        # the CDC never writes NULL additional (it coerces to '{}').
+        ("subject_additional", pa.string()),
         ("das_tenant_id", pa.string()),
         ("domain", pa.string()),
         ("observation_id", pa.string()),
@@ -33,6 +48,14 @@ OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
         ("groupby_col", pa.string()),
         ("extra__subject__name", pa.string()),
         ("extra__subject__subject_subtype", pa.string()),
+        # Raw subject `additional` JSON as a string; ecoscope strips the `extra__`
+        # prefix to `subject__additional`, matching the EarthRanger API path where the
+        # nested dict arrives under the same name. Parsed by consumers (e.g.
+        # `assign_subject_colors` reads the `rgb` key) -- EarthRanger declares no
+        # schema for this field, so it is not decomposed into typed columns here.
+        # Always present so the stream schema is stable, but null unless the query
+        # sets `include_subject_additional` (same opt-in shape as `event_details`).
+        ("extra__subject__additional", pa.string()),
         ("extra__source", pa.string()),
         ("junk_status", pa.bool_()),
     ]
@@ -299,6 +322,7 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
             "source_id": "extra__source",
             "subject_name": "extra__subject__name",
             "subject_subtype_id": "extra__subject__subject_subtype",
+            "subject_additional": "extra__subject__additional",
         }
     )
     # NOTE: workaround for missing +00:00 timezone offset in EarthRanger data, can be removed
@@ -390,6 +414,7 @@ TRANSFORMS: dict[SchemaChoices, TransformSpec] = {
             "source_id",
             "subject_name",
             "subject_subtype_id",
+            "subject_additional",
         ],
         target_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
         pre_cast_fn=_observations_pre_cast,
