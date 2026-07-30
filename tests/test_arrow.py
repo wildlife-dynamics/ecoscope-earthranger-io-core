@@ -97,27 +97,87 @@ def test_slim_transform_round_trips_subject_additional(subject_additional):
         ("255, 0, 0", (1.0, 0.0, 0.0, 1.0)),  # ecoscope strips whitespace
         ("#FFFF00", None),  # hex is NOT the additional['rgb'] format
         ("not-a-colour", None),
+        (None, None),  # {"rgb": null} -- key present, no value
     ],
 )
-def test_subject_additional_rgb_is_consumable_by_ecoscope(rgb, expected_rgba):
-    """Contract check on the value we transport: after the round trip, the `rgb` key
-    must still parse under ecoscope's rules. Replicates `parse_rgb_str` from
-    ecoscope.platform.tasks.transformation._subjects rather than importing it, since
-    io-core must not depend on ecoscope."""
+def test_documents_earthranger_rgb_format(rgb, expected_rgba):
+    """Executable documentation of the `rgb` format this column transports.
+
+    This asserts nothing about io-core -- the transform is a verbatim passthrough,
+    already pinned by `test_slim_transform_round_trips_subject_additional`. It exists
+    to record which values the downstream consumer can use, mirroring `parse_rgb_str`
+    in ecoscope.platform.tasks.transformation._subjects (copied, not imported: io-core
+    must not depend on ecoscope). If that function changes, this will NOT detect the
+    drift -- the ecoscope side owns that test.
+    """
 
     def parse_rgb_str(rgb_str):
         try:
             r, g, b = [int(x.strip()) for x in rgb_str.split(",")]
             return (r / 255.0, g / 255.0, b / 255.0, 1.0)
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError, TypeError):
             return None
 
-    transform, rb = _observations_pre_transform_batch(json.dumps({"rgb": rgb}))
+    assert parse_rgb_str(rgb) == expected_rgba
+
+
+@pytest.mark.parametrize(
+    "additional",
+    [
+        pytest.param(json.dumps({"rgb": None}), id="rgb-key-null"),
+        pytest.param(json.dumps({"sex": "female"}), id="no-rgb-key"),
+    ],
+)
+def test_subject_without_a_colour_still_transports(additional):
+    """The common real-world case: a subject has `additional` but no usable colour.
+    io-core must transport it unchanged and leave the fallback decision to the
+    consumer (ecoscope guards with `if rgb_value:`)."""
+    transform, rb = _observations_pre_transform_batch(additional)
 
     out = transform.transform(rb)
-    transported = json.loads(out.column("extra__subject__additional")[0].as_py())
 
-    assert parse_rgb_str(transported["rgb"]) == expected_rgba
+    assert out.column("extra__subject__additional")[0].as_py() == additional
+    assert "rgb" not in json.loads(additional) or json.loads(additional)["rgb"] is None
+
+
+def test_slim_pre_transform_schema_is_the_store_projection_contract():
+    """`pre_transform_schema` is handed to the stores as their SELECT list, and
+    `RecordBatch.cast` is order-sensitive -- so reordering
+    OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 silently breaks the slim cast at request
+    time. Pin the exact projection the stores must emit, in order."""
+    assert TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1].pre_transform_schema.names == [
+        "location",
+        "recorded_at",
+        "subject_id",
+        "subject_name",
+        "subject_subtype_id",
+        "subject_additional",
+        "source_id",
+    ]
+
+
+def test_slim_transform_requires_subject_additional_column():
+    """A store that does not project `subject_additional` must fail loudly rather
+    than silently dropping the column (stores do `batch.select(schema.names)`, so in
+    practice they raise before reaching the transform)."""
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    without = transform.pre_transform_schema.remove(
+        transform.pre_transform_schema.get_field_index("subject_additional")
+    )
+    rb = pa.record_batch(
+        {
+            "location": ga.array([ga.as_wkb(["POINT (37.5 -2.5)"])[0].wkb]),
+            "recorded_at": ["2015-01-01T00:00:00"],
+            "subject_id": ["subject1"],
+            "subject_name": ["eco_1"],
+            "subject_subtype_id": ["elephant"],
+            "source_id": ["source1"],
+        },
+        schema=without,
+    )
+
+    with pytest.raises(ValueError, match="field names are not matching"):
+        transform.transform(rb)
 
 
 @pytest.mark.parametrize(
