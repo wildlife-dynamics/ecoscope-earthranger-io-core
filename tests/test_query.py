@@ -35,6 +35,7 @@ def test_observations_query_from_query_params_round_trip(value):
         patrol_status=None,
         patrols_overlap_daterange=True,
         include_patrol_details=False,
+        include_subject_additional=False,
         exclusion_flags=value,
     )
     assert q.exclusion_flags == value
@@ -75,9 +76,49 @@ def test_observations_query_from_query_params_patrols_overlap_daterange(value):
         patrol_status=None,
         patrols_overlap_daterange=value,
         include_patrol_details=False,
+        include_subject_additional=False,
         exclusion_flags=None,
     )
     assert q.patrols_overlap_daterange is value
+
+
+def test_observations_query_include_subject_additional_default_is_false():
+    """Opt-in: the subject `additional` JSON is a wide free-form column, so it is
+    only populated when a consumer asks for it (e.g. `rgb` for track colouring)."""
+    q = ObservationsQuery(tenant_domain="example.pamdas.org")
+    assert q.include_subject_additional is False
+    assert q.model_dump()["include_subject_additional"] is False
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_observations_query_include_subject_additional_round_trip(value):
+    q = ObservationsQuery(
+        tenant_domain="example.pamdas.org", include_subject_additional=value
+    )
+    assert q.include_subject_additional is value
+    assert q.model_dump()["include_subject_additional"] is value
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_observations_query_from_query_params_include_subject_additional(value):
+    # ``from_query_params`` is a FastAPI dependency; when called directly
+    # we must pass every parameter explicitly so the ``Query(...)``
+    # sentinels don't leak into pydantic.
+    q = ObservationsQuery.from_query_params(
+        tenant_domain="example.pamdas.org",
+        range_start=None,
+        range_end=None,
+        subject_ids=None,
+        subject_group_name=None,
+        patrol_ids=None,
+        patrol_type_value=None,
+        patrol_status=None,
+        patrols_overlap_daterange=True,
+        include_patrol_details=False,
+        include_subject_additional=value,
+        exclusion_flags=None,
+    )
+    assert q.include_subject_additional is value
 
 
 def test_patrols_query_patrols_overlap_daterange_default_is_true():

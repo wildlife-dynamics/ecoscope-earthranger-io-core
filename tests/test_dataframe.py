@@ -53,6 +53,33 @@ def test_observations_gdf_schema_missing_column_raises():
         ObservationsGDFSchema.validate(gdf)
 
 
+@pytest.mark.parametrize(
+    "additional",
+    [
+        pytest.param(['{"rgb": "14,203,87"}', '{"rgb": "255,0,0"}'], id="populated"),
+        pytest.param([None, None], id="all-null-not-requested"),
+        pytest.param(['{"rgb": "14,203,87"}', None], id="mixed"),
+    ],
+)
+def test_observations_gdf_schema_accepts_subject_additional(additional):
+    """`extra__subject__additional` is optional and nullable: it is always present in
+    the slim arrow schema but null unless the query sets `include_subject_additional`,
+    so validation must pass for populated, all-null, and mixed columns alike."""
+    gdf = gpd.GeoDataFrame(
+        {
+            "geometry": [Point((0, 0)), Point((0, 1))],
+            "groupby_col": ["subject1", "subject1"],
+            "fixtime": [
+                dt.datetime.fromisoformat("2023-01-01T00:00:00+00:00"),
+                dt.datetime.fromisoformat("2023-01-02T00:00:00+00:00"),
+            ],
+            "junk_status": [False, False],
+            "extra__subject__additional": additional,
+        }
+    )
+    ObservationsGDFSchema.validate(gdf, lazy=True)
+
+
 def test_observations_from_arrow():
     query = ObservationsQuery(
         tenant_domain="some-site.pamdas.org",
