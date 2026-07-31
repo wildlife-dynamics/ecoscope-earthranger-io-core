@@ -38,6 +38,9 @@ OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
         ("geometry", geoarrow.pyarrow.wkb().with_crs("EPSG:4326")),
         ("fixtime", pa.timestamp("ns", tz="UTC")),
         ("groupby_col", pa.string()),
+        # Duplicates `groupby_col`. ecoscope strips the `extra__` prefix, giving
+        # `subject__id` -- the name the EarthRanger API path uses.
+        ("extra__subject__id", pa.string()),
         ("extra__subject__name", pa.string()),
         ("extra__subject__subject_subtype", pa.string()),
         # `subject_additional` (see OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1). Always
@@ -313,6 +316,15 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
             "subject_subtype_id": "extra__subject__subject_subtype",
             "subject_additional": "extra__subject__additional",
         }
+    )
+    # `subject_id` feeds both `groupby_col` (renamed above) and `extra__subject__id`.
+    # Inserted at the target schema's index: `RecordBatch.cast` requires field names
+    # to match positionally, so a misplaced insert raises rather than mis-maps.
+    extra_subject_id_idx = OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1.get_field_index(
+        "extra__subject__id"
+    )
+    renamed = renamed.add_column(
+        extra_subject_id_idx, "extra__subject__id", renamed.column("groupby_col")
     )
     # NOTE: workaround for missing +00:00 timezone offset in EarthRanger data, can be removed
     # once EarthRanger data is fixed to include timezone offsets.
