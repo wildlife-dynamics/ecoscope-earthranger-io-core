@@ -100,6 +100,32 @@ def test_observations_from_arrow():
     ObservationsGDFSchema.validate(obs, lazy=True)
 
 
+def test_observations_from_arrow_carries_subject_id():
+    """ERDW-268: the subject id reaches the dataframe as `extra__subject__id`, which
+    ecoscope strips to `subject__id`."""
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1", "subject2"],
+        range_start=dt.datetime(2023, 1, 1),
+        range_end=dt.datetime(2023, 12, 31),
+    )
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    rb = create_mock_observations_record_batch(
+        query=query,
+        columns=transform.required_columns,
+        schema=transform.pre_transform_schema,
+    )
+    obs = gpd.GeoDataFrame.from_arrow(
+        pyarrow.Table.from_batches([transform.transform(rb)])
+    )
+
+    assert "extra__subject__id" in obs.columns
+    assert obs["extra__subject__id"].equals(
+        obs["groupby_col"].rename("extra__subject__id")
+    )
+    ObservationsGDFSchema.validate(obs, lazy=True)
+
+
 def test_observations_ipc_roundtrip_geometry_not_naive_for_to_crs():
     """CRS must survive IPC so GeoPandas is not naive (avoids to_crs ValueError).
 

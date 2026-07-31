@@ -31,6 +31,27 @@ def test_slim_schema_includes_subject_additional_as_nullable_string():
     assert field.nullable
 
 
+def test_slim_schema_carries_the_subject_id_under_the_earthranger_name():
+    """ERDW-268: the subject id ships as `extra__subject__id` on top of `groupby_col`,
+    becoming `subject__id` once ecoscope strips the prefix."""
+    assert OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1.field("extra__subject__id").type == (
+        pa.string()
+    )
+    # `_observations_pre_cast` inserts positionally and the cast is order-sensitive,
+    # so pin the whole stream schema, in order.
+    assert OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1.names == [
+        "geometry",
+        "fixtime",
+        "groupby_col",
+        "extra__subject__id",
+        "extra__subject__name",
+        "extra__subject__subject_subtype",
+        "extra__subject__additional",
+        "extra__source",
+        "junk_status",
+    ]
+
+
 def _observations_pre_transform_batch(subject_additional):
     """One-row batch shaped like the store's SELECT for the ECOSCOPE_SLIM_V1 transform."""
     transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
@@ -140,6 +161,52 @@ def test_subject_without_a_colour_still_transports(additional):
     assert "rgb" not in json.loads(additional) or json.loads(additional)["rgb"] is None
 
 
+def test_slim_transform_populates_subject_id_from_the_same_source_as_groupby_col():
+    """Both columns come from the store's single `subject_id` projection, so they must
+    agree row for row. Multiple distinct subjects, so an insert that picked up the
+    wrong column cannot pass by coincidence."""
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    subject_ids = ["subject1", "subject2", "subject1"]
+    rb = pa.record_batch(
+        {
+            "location": ga.array(
+                [ga.as_wkb(["POINT (37.5 -2.5)"])[0].wkb] * len(subject_ids)
+            ),
+            "recorded_at": ["2015-01-01T00:00:00"] * len(subject_ids),
+            "subject_id": subject_ids,
+            "subject_name": ["eco_1", "eco_2", "eco_1"],
+            "subject_subtype_id": ["elephant"] * len(subject_ids),
+            "subject_additional": [SUBJECT_ADDITIONAL_JSON] * len(subject_ids),
+            "source_id": ["source1", "source2", "source1"],
+        },
+        schema=transform.pre_transform_schema,
+    )
+
+    out = transform.transform(rb)
+
+    assert out.schema.equals(transform.stream_schema)
+    assert out.column("extra__subject__id").to_pylist() == subject_ids
+    assert (
+        out.column("extra__subject__id").to_pylist()
+        == out.column("groupby_col").to_pylist()
+    )
+
+
+def test_slim_transform_emits_subject_id_for_an_empty_batch():
+    """Empty batches are the normal tail of a streaming response, and the new insert
+    has to survive one (a 0-length column, then a cast to the target schema)."""
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    rb = pa.record_batch(
+        {name: [] for name in transform.pre_transform_schema.names},
+        schema=transform.pre_transform_schema,
+    )
+
+    out = transform.transform(rb)
+
+    assert out.num_rows == 0
+    assert out.schema.equals(transform.stream_schema)
+
+
 def test_slim_pre_transform_schema_is_the_store_projection_contract():
     """`pre_transform_schema` is handed to the stores as their SELECT list, and
     `RecordBatch.cast` is order-sensitive -- so reordering
@@ -246,3 +313,34 @@ async def test_generate_bytes_includes_extra_source():
     assert "extra__source" in table.schema.names
     source_values = table.column("extra__source").to_pylist()
     assert all(v is not None for v in source_values)
+
+
+@pytest.mark.asyncio
+async def test_generate_bytes_includes_subject_id():
+    """ERDW-268 over the streaming path the API actually serves: the column must
+    survive IPC, populated, and still agree with `groupby_col`."""
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1", "subject2"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 1, 2),
+    )
+    async_batch_generator = get_async_rb_generator_from_storage_backend(
+        query,
+        columns=transform.required_columns,
+        schema=transform.pre_transform_schema,
+    )
+    content_stream = transform.generate_bytes(
+        async_batch_generator=async_batch_generator()
+    )
+    sink = io.BytesIO()
+    async for chunk in content_stream:
+        sink.write(chunk)
+    sink.seek(0)
+    table = pa.ipc.open_stream(sink).read_all()
+
+    subject_ids = table.column("extra__subject__id").to_pylist()
+    assert subject_ids
+    assert all(v is not None for v in subject_ids)
+    assert subject_ids == table.column("groupby_col").to_pylist()

@@ -31,6 +31,9 @@ class ObservationsGDFSchema(pa.DataFrameModel):
     junk_status: pa_typing.Series[bool] = pa.Field()
 
     # optional
+    # Duplicates `groupby_col`. Optional only because client-built frames need just
+    # the required columns; the slim arrow schema always carries it.
+    extra__subject__id: pa_typing.Series[str] | None = pa.Field(nullable=True)
     extra__subject__name: pa_typing.Series[str] | None = pa.Field(nullable=True)
     extra__subject__subject_subtype: pa_typing.Series[str] | None = pa.Field(
         nullable=True
