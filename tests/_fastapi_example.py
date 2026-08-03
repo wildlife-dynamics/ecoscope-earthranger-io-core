@@ -158,6 +158,25 @@ async def get_observations_streaming_arrow(
         raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
 
 
+@observations.post("/search/stream/arrow")
+async def search_observations_streaming_arrow(
+    query: ObservationsQuery,
+    schema: SchemaChoices = Query(
+        "ECOSCOPE_SLIM_V1",
+        description="Schema to use for the response",
+    ),
+    store_type: QueryEngine | None = Query(None),
+):
+    """POST twin of the GET route: filters arrive as a JSON body.
+
+    Mirrors the real API, where the body binds the query model and the
+    response-shaping options stay in the query string.
+    """
+    return await get_observations_streaming_arrow(
+        query=query, schema=schema, store_type=store_type
+    )
+
+
 app.include_router(observations)
 
 # Patrols router
@@ -252,6 +271,15 @@ async def get_patrols_streaming_arrow(
         raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
 
 
+@patrols.post("/search/stream/arrow")
+async def search_patrols_streaming_arrow(
+    query: PatrolsQuery,
+    store_type: QueryEngine | None = Query(None),
+):
+    """POST twin of the GET route: filters arrive as a JSON body."""
+    return await get_patrols_streaming_arrow(query=query, store_type=store_type)
+
+
 app.include_router(patrols)
 
 # Events router
@@ -336,6 +364,15 @@ async def get_events_streaming_arrow(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
+
+
+@events.post("/search/stream/arrow")
+async def search_events_streaming_arrow(
+    query: EventsQuery,
+    store_type: QueryEngine | None = Query(None),
+):
+    """POST twin of the GET route: filters arrive as a JSON body."""
+    return await get_events_streaming_arrow(query=query, store_type=store_type)
 
 
 def _canned_event_details_struct(parse_detail_datetimes: bool) -> pa.StructType:

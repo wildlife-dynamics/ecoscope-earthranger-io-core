@@ -1,7 +1,9 @@
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime
 from typing import AsyncIterable, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
 
 from pydantic import SecretStr
 
@@ -18,7 +20,11 @@ from ecoscope_earthranger_io_core.arrow import (
     PATROLS_NESTED_SCHEMA_V1,
     PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
 )
-from ecoscope_earthranger_io_core.client import ERWarehouseClient, _get_table
+from ecoscope_earthranger_io_core.client import (
+    ERWarehouseClient,
+    _get_table,
+    _search_table,
+)
 from ecoscope_earthranger_io_core.query import ObservationsQuery
 
 from _fastapi_example import app as _app
@@ -124,6 +130,17 @@ async def test__get_table_raises_on_empty_stream() -> None:
                 route="/observations/stream/arrow",
                 query=query,
             )
+
+
+def _sent(captured: dict) -> dict:
+    """Everything the client put on the wire, body and query string merged.
+
+    Filters now travel in the JSON body of the POST /search routes while
+    response-shaping options (store_type) stay in the query string. These
+    tests assert *that* a flag was forwarded; the dedicated transport tests
+    below assert *where* it was forwarded.
+    """
+    return {**(captured.get("query_params") or {}), **(captured.get("body") or {})}
 
 
 def test_client_get_subjectgroup_observations(
@@ -397,15 +414,15 @@ def test_client_query_engine_default_auto(
         )
         assert er_client.query_engine == "auto"
 
-        original_get_table = _get_table
+        original_search_table = _search_table
 
-        async def _capturing_get_table(*args, **kwargs):
+        async def _capturing_search_table(*args, **kwargs):
             captured_params["store_type"] = kwargs.get("store_type")
-            return await original_get_table(*args, **kwargs)
+            return await original_search_table(*args, **kwargs)
 
         with patch(
-            "ecoscope_earthranger_io_core.client._get_table",
-            side_effect=_capturing_get_table,
+            "ecoscope_earthranger_io_core.client._search_table",
+            side_effect=_capturing_search_table,
         ):
             table = er_client.get_subjectgroup_observations(
                 subject_group_name="Ecoscope",
@@ -442,15 +459,15 @@ def test_client_query_engine_explicit_per_request(
             warehouse_base_url="http://test",
         )
 
-        original_get_table = _get_table
+        original_search_table = _search_table
 
-        async def _capturing_get_table(*args, **kwargs):
+        async def _capturing_search_table(*args, **kwargs):
             captured_params["store_type"] = kwargs.get("store_type")
-            return await original_get_table(*args, **kwargs)
+            return await original_search_table(*args, **kwargs)
 
         with patch(
-            "ecoscope_earthranger_io_core.client._get_table",
-            side_effect=_capturing_get_table,
+            "ecoscope_earthranger_io_core.client._search_table",
+            side_effect=_capturing_search_table,
         ):
             table = er_client.get_subjectgroup_observations(
                 subject_group_name="Ecoscope",
@@ -489,15 +506,15 @@ def test_client_query_engine_client_level_default(
             query_engine="iceberg-dd",
         )
 
-        original_get_table = _get_table
+        original_search_table = _search_table
 
-        async def _capturing_get_table(*args, **kwargs):
+        async def _capturing_search_table(*args, **kwargs):
             captured_params["store_type"] = kwargs.get("store_type")
-            return await original_get_table(*args, **kwargs)
+            return await original_search_table(*args, **kwargs)
 
         with patch(
-            "ecoscope_earthranger_io_core.client._get_table",
-            side_effect=_capturing_get_table,
+            "ecoscope_earthranger_io_core.client._search_table",
+            side_effect=_capturing_search_table,
         ):
             table = er_client.get_subjectgroup_observations(
                 subject_group_name="Ecoscope",
@@ -535,15 +552,15 @@ def test_client_query_engine_per_request_overrides_client_default(
             query_engine="iceberg-dd",
         )
 
-        original_get_table = _get_table
+        original_search_table = _search_table
 
-        async def _capturing_get_table(*args, **kwargs):
+        async def _capturing_search_table(*args, **kwargs):
             captured_params["store_type"] = kwargs.get("store_type")
-            return await original_get_table(*args, **kwargs)
+            return await original_search_table(*args, **kwargs)
 
         with patch(
-            "ecoscope_earthranger_io_core.client._get_table",
-            side_effect=_capturing_get_table,
+            "ecoscope_earthranger_io_core.client._search_table",
+            side_effect=_capturing_search_table,
         ):
             table = er_client.get_subjectgroup_observations(
                 subject_group_name="Ecoscope",
@@ -640,7 +657,10 @@ def _capturing_mock_httpx_client(app: FastAPI, captured: dict):
             original_stream = mock_httpx_client.stream
 
             def _capturing_stream(method, url, **kwargs):
-                captured["params"] = kwargs.get("params")
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
                 return original_stream(method, url, **kwargs)
 
             mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
@@ -689,7 +709,10 @@ def test_client_get_events_raw_multi_type(app: FastAPI) -> None:
             original_stream = mock_httpx_client.stream
 
             def _capturing_stream(method, url, **kwargs):
-                captured["params"] = kwargs.get("params")
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
                 return original_stream(method, url, **kwargs)
 
             mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
@@ -709,9 +732,9 @@ def test_client_get_events_raw_multi_type(app: FastAPI) -> None:
         )
     assert isinstance(table, pa.Table)
     assert len(table) > 0
-    assert captured["params"]["raw_details"] is True
+    assert _sent(captured)["raw_details"] is True
     # raw details are still details, so the payload is included
-    assert captured["params"]["include_details"] is True
+    assert _sent(captured)["include_details"] is True
 
 
 def test_client_get_events_no_details_default(app: FastAPI) -> None:
@@ -731,8 +754,8 @@ def test_client_get_events_no_details_default(app: FastAPI) -> None:
             until="2015-03-01T00:00:00",
             event_type=["a", "b"],
         )
-    assert captured["params"]["include_details"] is False
-    assert captured["params"]["raw_details"] is False
+    assert _sent(captured)["include_details"] is False
+    assert _sent(captured)["raw_details"] is False
 
 
 def test_client_get_events_typed_path_params(app: FastAPI) -> None:
@@ -752,8 +775,8 @@ def test_client_get_events_typed_path_params(app: FastAPI) -> None:
             event_type=["wildlife_sighting"],
             include_details=True,
         )
-    assert captured["params"]["include_details"] is True
-    assert captured["params"]["raw_details"] is False
+    assert _sent(captured)["include_details"] is True
+    assert _sent(captured)["raw_details"] is False
 
     captured.clear()
     with patch.object(
@@ -771,9 +794,9 @@ def test_client_get_events_typed_path_params(app: FastAPI) -> None:
             parse_detail_datetimes=True,
             invalid_only=True,
         )
-    assert captured["params"]["raw_details"] is False
-    assert captured["params"]["parse_detail_datetimes"] is True
-    assert captured["params"]["invalid_only"] is True
+    assert _sent(captured)["raw_details"] is False
+    assert _sent(captured)["parse_detail_datetimes"] is True
+    assert _sent(captured)["invalid_only"] is True
 
 
 def test_client_get_events_optional_time_range(app: FastAPI) -> None:
@@ -792,8 +815,8 @@ def test_client_get_events_optional_time_range(app: FastAPI) -> None:
         # no since/until at all
         table = er_client.get_events(event_type=["wildlife_sighting"])
     assert isinstance(table, pa.Table)
-    assert "range_start" not in captured["params"]
-    assert "range_end" not in captured["params"]
+    assert "range_start" not in _sent(captured)
+    assert "range_end" not in _sent(captured)
 
     # half-bounded (only since) is allowed too
     captured.clear()
@@ -806,8 +829,8 @@ def test_client_get_events_optional_time_range(app: FastAPI) -> None:
             warehouse_base_url="http://test",
         )
         er_client.get_events(since="2015-01-01T00:00:00", event_type=["a", "b"])
-    assert "range_start" in captured["params"]
-    assert "range_end" not in captured["params"]
+    assert "range_start" in _sent(captured)
+    assert "range_end" not in _sent(captured)
 
 
 def test_client_get_events_forwards_invalid_details(app: FastAPI) -> None:
@@ -828,7 +851,7 @@ def test_client_get_events_forwards_invalid_details(app: FastAPI) -> None:
             include_details=True,
             invalid_details="coerce",
         )
-    assert captured["params"]["invalid_details"] == "coerce"
+    assert _sent(captured)["invalid_details"] == "coerce"
 
 
 def test_client_get_events_rejects_unsupported() -> None:
@@ -919,8 +942,8 @@ def test_client_get_events_include_and_raw_details_compose(app: FastAPI) -> None
             include_details=True,
             raw_details=True,
         )
-    assert captured["params"]["raw_details"] is True
-    assert captured["params"]["include_details"] is True
+    assert _sent(captured)["raw_details"] is True
+    assert _sent(captured)["include_details"] is True
 
 
 def test_client_get_events_invalid_details_triggers_typed_mode(app: FastAPI) -> None:
@@ -941,9 +964,9 @@ def test_client_get_events_invalid_details_triggers_typed_mode(app: FastAPI) -> 
             event_type=["wildlife_sighting"],
             invalid_details="drop",
         )
-    assert captured["params"]["invalid_details"] == "drop"
-    assert captured["params"]["raw_details"] is False
-    assert captured["params"]["include_details"] is True
+    assert _sent(captured)["invalid_details"] == "drop"
+    assert _sent(captured)["raw_details"] is False
+    assert _sent(captured)["include_details"] is True
 
 
 def test_client_get_event_types(app: FastAPI) -> None:
@@ -1211,7 +1234,10 @@ def test_client_get_subjectgroup_observations_forwards_exclusion_flags(
             original_stream = mock_httpx_client.stream
 
             def _capturing_stream(method, url, **kwargs):
-                captured["params"] = kwargs.get("params")
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
                 return original_stream(method, url, **kwargs)
 
             mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
@@ -1234,7 +1260,7 @@ def test_client_get_subjectgroup_observations_forwards_exclusion_flags(
             filter=value,
         )
 
-    params = captured["params"]
+    params = _sent(captured)
     if value is None:
         assert "exclusion_flags" not in params
     else:
@@ -1258,7 +1284,10 @@ def test_client_get_patrol_observations_with_patrol_filter_forwards_exclusion_fl
             original_stream = mock_httpx_client.stream
 
             def _capturing_stream(method, url, **kwargs):
-                captured["params"] = kwargs.get("params")
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
                 return original_stream(method, url, **kwargs)
 
             mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
@@ -1283,7 +1312,7 @@ def test_client_get_patrol_observations_with_patrol_filter_forwards_exclusion_fl
             filter=value,
         )
 
-    params = captured["params"]
+    params = _sent(captured)
     if value is None:
         assert "exclusion_flags" not in params
     else:
@@ -1312,7 +1341,10 @@ def test_client_get_patrol_observations_with_patrol_filter_forwards_patrols_over
             original_stream = mock_httpx_client.stream
 
             def _capturing_stream(method, url, **kwargs):
-                captured["params"] = kwargs.get("params")
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
                 return original_stream(method, url, **kwargs)
 
             mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
@@ -1337,7 +1369,7 @@ def test_client_get_patrol_observations_with_patrol_filter_forwards_patrols_over
             include_patrol_details=True,
         )
 
-    params = captured["params"]
+    params = _sent(captured)
     assert params["patrols_overlap_daterange"] == value
 
 
@@ -1356,7 +1388,10 @@ def test_client_get_patrol_observations_with_patrol_filter_default_patrols_overl
             original_stream = mock_httpx_client.stream
 
             def _capturing_stream(method, url, **kwargs):
-                captured["params"] = kwargs.get("params")
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
                 return original_stream(method, url, **kwargs)
 
             mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
@@ -1380,7 +1415,7 @@ def test_client_get_patrol_observations_with_patrol_filter_default_patrols_overl
             include_patrol_details=True,
         )
 
-    params = captured["params"]
+    params = _sent(captured)
     assert params["patrols_overlap_daterange"] is True
 
 
@@ -1401,7 +1436,10 @@ def test_client_get_patrols_minimal_forwards_patrols_overlap_daterange(
             original_stream = mock_httpx_client.stream
 
             def _capturing_stream(method, url, **kwargs):
-                captured["params"] = kwargs.get("params")
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
                 return original_stream(method, url, **kwargs)
 
             mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
@@ -1425,7 +1463,7 @@ def test_client_get_patrols_minimal_forwards_patrols_overlap_daterange(
             patrols_overlap_daterange=value,
         )
 
-    params = captured["params"]
+    params = _sent(captured)
     assert params["patrols_overlap_daterange"] == value
 
 
@@ -1444,7 +1482,10 @@ def test_client_get_patrols_minimal_default_patrols_overlap_daterange_is_true(
             original_stream = mock_httpx_client.stream
 
             def _capturing_stream(method, url, **kwargs):
-                captured["params"] = kwargs.get("params")
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
                 return original_stream(method, url, **kwargs)
 
             mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
@@ -1467,5 +1508,128 @@ def test_client_get_patrols_minimal_default_patrols_overlap_daterange_is_true(
             status=["done"],
         )
 
-    params = captured["params"]
+    params = _sent(captured)
     assert params["patrols_overlap_daterange"] is True
+
+
+# -------------------------------------------------------------------------
+# POST /search transport tests (ERDW-269)
+# -------------------------------------------------------------------------
+
+
+@contextmanager
+def _capture_request(app: FastAPI, captured: dict):
+    """Patch the client's httpx factory and record what goes on the wire."""
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app),
+            base_url="http://test",
+        ) as mock_httpx_client:
+            original_stream = mock_httpx_client.stream
+
+            def _capturing_stream(method, url, **kwargs):
+                captured["method"] = method
+                captured["url"] = url
+                captured["query_params"] = kwargs.get("params")
+                captured["body"] = kwargs.get("json")
+                return original_stream(method, url, **kwargs)
+
+            mock_httpx_client.stream = _capturing_stream  # type: ignore[assignment]
+            yield mock_httpx_client
+
+    with patch.object(ERWarehouseClient, "_httpx_client", _mock_httpx_client):
+        yield
+
+
+def _client() -> ERWarehouseClient:
+    return ERWarehouseClient(
+        server="some-site.pamdas.org",
+        token="abc",
+        warehouse_base_url="http://test",
+    )
+
+
+def test_observations_filters_travel_in_the_body_not_the_url(app: FastAPI) -> None:
+    """Filters must not reach the query string, or the URL-length bug returns."""
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _client().get_subjectgroup_observations(
+            subject_group_name="Ecoscope",
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+        )
+
+    assert captured["method"] == "POST"
+    assert captured["url"] == "/observations/search/stream/arrow"
+    body = captured["body"]
+    assert body["subject_group_name"] == "Ecoscope"
+    assert body["range_start"] == "2015-01-01T12:00:00"
+    assert body["tenant_domain"] == "some-site.pamdas.org"
+    # Response shaping stays in the query string; filters must not appear there.
+    assert captured["query_params"] == {"store_type": "auto"}
+
+
+def test_patrols_filters_travel_in_the_body_not_the_url(app: FastAPI) -> None:
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _client().get_patrols_minimal(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            patrol_type_value=["routine_patrol"],
+            status=["done"],
+        )
+
+    assert captured["method"] == "POST"
+    assert captured["url"] == "/patrols/search/stream/arrow"
+    body = captured["body"]
+    assert body["patrol_type_value"] == ["routine_patrol"]
+    assert body["patrol_status"] == ["done"]
+    assert captured["query_params"] == {"store_type": "auto"}
+
+
+def test_events_filters_travel_in_the_body_not_the_url(app: FastAPI) -> None:
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _client().get_events(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            event_type=["wildlife_sighting"],
+        )
+
+    assert captured["method"] == "POST"
+    assert captured["url"] == "/events/search/stream/arrow"
+    assert captured["body"]["event_type"] == ["wildlife_sighting"]
+    assert captured["query_params"] == {"store_type": "auto"}
+
+
+def test_patrol_ids_list_too_long_for_a_url_is_sent_and_applied(
+    app: FastAPI,
+) -> None:
+    """The regression this change exists for.
+
+    ~1365 patrol UUIDs used to overflow httpx's 65536-char URL component limit
+    and raise InvalidURL before the request left the process. In a JSON body
+    there is no such ceiling, and the whole list must arrive intact -- a
+    silently dropped patrol filter would return every patrol in the tenant.
+    """
+    import uuid
+
+    patrol_ids = [str(uuid.uuid4()) for _ in range(2000)]
+    captured: dict = {}
+    with _capture_request(app, captured):
+        table = _client().get_patrol_observations(
+            patrols_df=pa.table({"id": pa.array(patrol_ids, type=pa.string())}),
+        )
+
+    assert isinstance(table, pa.Table)
+    assert captured["method"] == "POST"
+    assert sorted(captured["body"]["patrol_ids"]) == sorted(patrol_ids)
+    # The same list as a query string would exceed httpx's limit outright.
+    with pytest.raises(httpx.InvalidURL):
+        httpx.Request(
+            "GET",
+            "http://test/observations/stream/arrow",
+            params={"patrol_ids": patrol_ids},
+        )
