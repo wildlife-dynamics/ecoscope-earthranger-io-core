@@ -72,6 +72,73 @@ async def _get_table(
     return table
 
 
+async def _search_table(
+    client: httpx.AsyncClient,
+    route: str,
+    query: BaseModel,
+    headers: dict[str, str] | None = None,
+    store_type: QueryEngine | None = None,
+    extra_params: dict | None = None,
+) -> pa.Table:
+    """Read an Arrow IPC stream from a warehouse ``/search`` route.
+
+    Like :func:`_get_table`, this fetches data and returns it as a PyArrow
+    Table -- despite issuing a POST, nothing is created or mutated. The
+    warehouse exposes these reads as POST because the filters travel in a JSON
+    body rather than the query string, and a GET body is not routable.
+
+    Sending filters in the body means the ones that grow with the result set
+    (``patrol_ids``, ``subject_ids``) are no longer bounded by URL length:
+    httpx refuses to build a request whose query component exceeds 65536
+    chars, and the load balancer caps the request line well below that --
+    around 1365 patrol UUIDs the request used to fail client-side, before it
+    ever reached the API.
+
+    Response-shaping options (``store_type`` and anything in ``extra_params``)
+    stay in the query string, matching the API's ``/search`` routes.
+
+    Args:
+        client: The httpx async client.
+        route: The API route to call.
+        query: A Pydantic model specifying the query filters (sent as the body).
+        headers: Optional headers to include.
+        store_type: Optional store type to pass as a query parameter
+            (maps to the DWH API's ``store_type`` param).
+        extra_params: Optional response-shaping flags merged into the query
+            string after ``store_type``.
+    """
+    params: dict = {}
+    if store_type is not None:
+        params["store_type"] = store_type
+    if extra_params:
+        params.update(extra_params)
+    # mode="json" so datetime fields serialize to ISO strings; the plain dump
+    # leaves datetime objects that json= cannot encode.
+    body = query.model_dump(mode="json", exclude_none=True)
+    async with client.stream(
+        "POST",
+        route,
+        json=body,
+        params=params,
+        headers=headers,
+        timeout=600,
+    ) as response:
+        response.raise_for_status()
+        sink = io.BytesIO()
+        async for chunk in response.aiter_bytes():
+            sink.write(chunk)
+        sink.seek(0)
+    source = sink.getvalue()
+    if not source:
+        raise ConnectionError(
+            f"Warehouse API stream broke for {route}: "
+            "received an empty response. The API may have crashed or "
+            "the connection was closed unexpectedly."
+        )
+    table = pa.ipc.open_stream(source).read_all()
+    return table
+
+
 class ERWarehouseClient(BaseModel):
     """EarthRanger Warehouse Client.
 
@@ -277,9 +344,9 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch observations as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _get_table(
+            table = await _search_table(
                 client=client,
-                route=f"{self.warehouse_observations_endpoint}/stream/arrow",
+                route=f"{self.warehouse_observations_endpoint}/search/stream/arrow",
                 query=query,
                 headers=self._get_auth_headers(),
                 store_type=query_engine,
@@ -293,9 +360,9 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch patrols as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _get_table(
+            table = await _search_table(
                 client=client,
-                route=f"{self.warehouse_patrols_endpoint}/stream/arrow",
+                route=f"{self.warehouse_patrols_endpoint}/search/stream/arrow",
                 query=query,
                 headers=self._get_auth_headers(),
                 store_type=query_engine,
@@ -309,9 +376,9 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch events as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _get_table(
+            table = await _search_table(
                 client=client,
-                route=f"{self.warehouse_events_endpoint}/stream/arrow",
+                route=f"{self.warehouse_events_endpoint}/search/stream/arrow",
                 query=query,
                 headers=self._get_auth_headers(),
                 store_type=query_engine,
@@ -676,7 +743,12 @@ class ERWarehouseClient(BaseModel):
 
         query = ObservationsQuery(
             tenant_domain=self.server,
-            patrol_ids=list(set(patrol_ids)),
+            # ``or None`` so an empty patrols_df sends no patrol_ids at all.
+            # ``exclude_none`` drops None but keeps [], and a JSON body carries
+            # the empty list through where a query string dropped it -- an
+            # explicit [] that a server did not normalize back to None would
+            # read as "no patrol filter" and scan the whole tenant.
+            patrol_ids=list(set(patrol_ids)) or None,
             include_patrol_details=include_patrol_details,
             exclusion_flags=filter,
         )
