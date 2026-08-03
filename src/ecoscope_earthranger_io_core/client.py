@@ -743,7 +743,12 @@ class ERWarehouseClient(BaseModel):
 
         query = ObservationsQuery(
             tenant_domain=self.server,
-            patrol_ids=list(set(patrol_ids)),
+            # ``or None`` so an empty patrols_df sends no patrol_ids at all.
+            # ``exclude_none`` drops None but keeps [], and a JSON body carries
+            # the empty list through where a query string dropped it -- an
+            # explicit [] that a server did not normalize back to None would
+            # read as "no patrol filter" and scan the whole tenant.
+            patrol_ids=list(set(patrol_ids)) or None,
             include_patrol_details=include_patrol_details,
             exclusion_flags=filter,
         )

@@ -1,3 +1,5 @@
+import io
+import json
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime
 from typing import AsyncIterable, Callable
@@ -132,15 +134,88 @@ async def test__get_table_raises_on_empty_stream() -> None:
             )
 
 
-def _sent(captured: dict) -> dict:
-    """Everything the client put on the wire, body and query string merged.
+@pytest.mark.asyncio
+async def test__search_table_raises_on_empty_stream() -> None:
+    """Same guard as the GET helper, on the path that now serves the reads.
 
-    Filters now travel in the JSON body of the POST /search routes while
-    response-shaping options (store_type) stay in the query string. These
-    tests assert *that* a flag was forwarded; the dedicated transport tests
-    below assert *where* it was forwarded.
+    All three Arrow endpoints go through ``_search_table``; ``_get_table``
+    only serves ``/event_types``. An empty body must surface as a clear
+    ConnectionError rather than a pyarrow parse error.
     """
-    return {**(captured.get("query_params") or {}), **(captured.get("body") or {})}
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 12, 31),
+    )
+
+    async def empty_response(scope, receive, send):
+        assert scope["method"] == "POST"
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async with AsyncClient(
+        transport=ASGITransport(empty_response),
+        base_url="http://test",
+    ) as client:
+        with pytest.raises(ConnectionError, match="stream broke"):
+            await _search_table(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=query,
+            )
+
+
+@pytest.mark.asyncio
+async def test__search_table_returns_table_and_sends_filters_in_the_body() -> None:
+    """Success path for the helper, plus proof the body is what carries filters."""
+    seen: dict = {}
+
+    async def echo_app(scope, receive, send):
+        body = b""
+        while True:
+            message = await receive()
+            body += message.get("body", b"")
+            if not message.get("more_body"):
+                break
+        seen["method"] = scope["method"]
+        seen["path"] = scope["path"]
+        seen["query_string"] = scope["query_string"].decode()
+        seen["body"] = json.loads(body)
+
+        sink = io.BytesIO()
+        table = pa.table({"a": pa.array([1, 2, 3], type=pa.int64())})
+        with pa.ipc.new_stream(sink, table.schema) as writer:
+            writer.write_table(table)
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": sink.getvalue()})
+
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 12, 31),
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(echo_app),
+        base_url="http://test",
+    ) as client:
+        table = await _search_table(
+            client=client,
+            route="/observations/search/stream/arrow",
+            query=query,
+            store_type="iceberg-dd",
+        )
+
+    assert isinstance(table, pa.Table)
+    assert table.num_rows == 3
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/observations/search/stream/arrow"
+    assert seen["body"]["subject_ids"] == ["subject1"]
+    assert seen["body"]["range_start"] == "2023-01-01T00:00:00"
+    # Only response shaping belongs in the URL.
+    assert seen["query_string"] == "store_type=iceberg-dd"
 
 
 def test_client_get_subjectgroup_observations(
@@ -732,9 +807,9 @@ def test_client_get_events_raw_multi_type(app: FastAPI) -> None:
         )
     assert isinstance(table, pa.Table)
     assert len(table) > 0
-    assert _sent(captured)["raw_details"] is True
+    assert captured["body"]["raw_details"] is True
     # raw details are still details, so the payload is included
-    assert _sent(captured)["include_details"] is True
+    assert captured["body"]["include_details"] is True
 
 
 def test_client_get_events_no_details_default(app: FastAPI) -> None:
@@ -754,8 +829,8 @@ def test_client_get_events_no_details_default(app: FastAPI) -> None:
             until="2015-03-01T00:00:00",
             event_type=["a", "b"],
         )
-    assert _sent(captured)["include_details"] is False
-    assert _sent(captured)["raw_details"] is False
+    assert captured["body"]["include_details"] is False
+    assert captured["body"]["raw_details"] is False
 
 
 def test_client_get_events_typed_path_params(app: FastAPI) -> None:
@@ -775,8 +850,8 @@ def test_client_get_events_typed_path_params(app: FastAPI) -> None:
             event_type=["wildlife_sighting"],
             include_details=True,
         )
-    assert _sent(captured)["include_details"] is True
-    assert _sent(captured)["raw_details"] is False
+    assert captured["body"]["include_details"] is True
+    assert captured["body"]["raw_details"] is False
 
     captured.clear()
     with patch.object(
@@ -794,9 +869,9 @@ def test_client_get_events_typed_path_params(app: FastAPI) -> None:
             parse_detail_datetimes=True,
             invalid_only=True,
         )
-    assert _sent(captured)["raw_details"] is False
-    assert _sent(captured)["parse_detail_datetimes"] is True
-    assert _sent(captured)["invalid_only"] is True
+    assert captured["body"]["raw_details"] is False
+    assert captured["body"]["parse_detail_datetimes"] is True
+    assert captured["body"]["invalid_only"] is True
 
 
 def test_client_get_events_optional_time_range(app: FastAPI) -> None:
@@ -815,8 +890,8 @@ def test_client_get_events_optional_time_range(app: FastAPI) -> None:
         # no since/until at all
         table = er_client.get_events(event_type=["wildlife_sighting"])
     assert isinstance(table, pa.Table)
-    assert "range_start" not in _sent(captured)
-    assert "range_end" not in _sent(captured)
+    assert "range_start" not in captured["body"]
+    assert "range_end" not in captured["body"]
 
     # half-bounded (only since) is allowed too
     captured.clear()
@@ -829,8 +904,8 @@ def test_client_get_events_optional_time_range(app: FastAPI) -> None:
             warehouse_base_url="http://test",
         )
         er_client.get_events(since="2015-01-01T00:00:00", event_type=["a", "b"])
-    assert "range_start" in _sent(captured)
-    assert "range_end" not in _sent(captured)
+    assert "range_start" in captured["body"]
+    assert "range_end" not in captured["body"]
 
 
 def test_client_get_events_forwards_invalid_details(app: FastAPI) -> None:
@@ -851,7 +926,7 @@ def test_client_get_events_forwards_invalid_details(app: FastAPI) -> None:
             include_details=True,
             invalid_details="coerce",
         )
-    assert _sent(captured)["invalid_details"] == "coerce"
+    assert captured["body"]["invalid_details"] == "coerce"
 
 
 def test_client_get_events_rejects_unsupported() -> None:
@@ -942,8 +1017,8 @@ def test_client_get_events_include_and_raw_details_compose(app: FastAPI) -> None
             include_details=True,
             raw_details=True,
         )
-    assert _sent(captured)["raw_details"] is True
-    assert _sent(captured)["include_details"] is True
+    assert captured["body"]["raw_details"] is True
+    assert captured["body"]["include_details"] is True
 
 
 def test_client_get_events_invalid_details_triggers_typed_mode(app: FastAPI) -> None:
@@ -964,9 +1039,9 @@ def test_client_get_events_invalid_details_triggers_typed_mode(app: FastAPI) -> 
             event_type=["wildlife_sighting"],
             invalid_details="drop",
         )
-    assert _sent(captured)["invalid_details"] == "drop"
-    assert _sent(captured)["raw_details"] is False
-    assert _sent(captured)["include_details"] is True
+    assert captured["body"]["invalid_details"] == "drop"
+    assert captured["body"]["raw_details"] is False
+    assert captured["body"]["include_details"] is True
 
 
 def test_client_get_event_types(app: FastAPI) -> None:
@@ -1260,11 +1335,11 @@ def test_client_get_subjectgroup_observations_forwards_exclusion_flags(
             filter=value,
         )
 
-    params = _sent(captured)
+    body = captured["body"]
     if value is None:
-        assert "exclusion_flags" not in params
+        assert "exclusion_flags" not in body
     else:
-        assert params["exclusion_flags"] == value
+        assert body["exclusion_flags"] == value
 
 
 @pytest.mark.parametrize("value", [None, 0, 1, 2, 3])
@@ -1312,11 +1387,11 @@ def test_client_get_patrol_observations_with_patrol_filter_forwards_exclusion_fl
             filter=value,
         )
 
-    params = _sent(captured)
+    body = captured["body"]
     if value is None:
-        assert "exclusion_flags" not in params
+        assert "exclusion_flags" not in body
     else:
-        assert params["exclusion_flags"] == value
+        assert body["exclusion_flags"] == value
 
 
 # -------------------------------------------------------------------------
@@ -1369,8 +1444,8 @@ def test_client_get_patrol_observations_with_patrol_filter_forwards_patrols_over
             include_patrol_details=True,
         )
 
-    params = _sent(captured)
-    assert params["patrols_overlap_daterange"] == value
+    body = captured["body"]
+    assert body["patrols_overlap_daterange"] == value
 
 
 def test_client_get_patrol_observations_with_patrol_filter_default_patrols_overlap_daterange_is_true(
@@ -1415,8 +1490,8 @@ def test_client_get_patrol_observations_with_patrol_filter_default_patrols_overl
             include_patrol_details=True,
         )
 
-    params = _sent(captured)
-    assert params["patrols_overlap_daterange"] is True
+    body = captured["body"]
+    assert body["patrols_overlap_daterange"] is True
 
 
 @pytest.mark.parametrize("value", [True, False])
@@ -1463,8 +1538,8 @@ def test_client_get_patrols_minimal_forwards_patrols_overlap_daterange(
             patrols_overlap_daterange=value,
         )
 
-    params = _sent(captured)
-    assert params["patrols_overlap_daterange"] == value
+    body = captured["body"]
+    assert body["patrols_overlap_daterange"] == value
 
 
 def test_client_get_patrols_minimal_default_patrols_overlap_daterange_is_true(
@@ -1508,8 +1583,8 @@ def test_client_get_patrols_minimal_default_patrols_overlap_daterange_is_true(
             status=["done"],
         )
 
-    params = _sent(captured)
-    assert params["patrols_overlap_daterange"] is True
+    body = captured["body"]
+    assert body["patrols_overlap_daterange"] is True
 
 
 # -------------------------------------------------------------------------
@@ -1633,3 +1708,19 @@ def test_patrol_ids_list_too_long_for_a_url_is_sent_and_applied(
             "http://test/observations/stream/arrow",
             params={"patrol_ids": patrol_ids},
         )
+
+
+def test_empty_patrols_df_sends_no_patrol_ids(app: FastAPI) -> None:
+    """An empty patrols_df must omit patrol_ids, not send an empty list.
+
+    A query string dropped empty-list params outright; a JSON body carries
+    ``[]`` through. A server that did not normalize ``[]`` back to ``None``
+    would read it as "no patrol filter" and scan the whole tenant.
+    """
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _client().get_patrol_observations(
+            patrols_df=pa.table({"id": pa.array([], type=pa.string())}),
+        )
+
+    assert "patrol_ids" not in captured["body"]
