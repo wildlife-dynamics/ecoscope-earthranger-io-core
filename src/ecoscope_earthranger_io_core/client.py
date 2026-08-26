@@ -708,6 +708,17 @@ class ERWarehouseClient(BaseModel):
                             "patrol_segment_id": segment.get("id"),
                             "patrol_type": segment.get("patrol_type"),
                             "patrol_start_time": segment.get("time_range_start"),
+                            # The segment's capture fields, carried as event
+                            # context. ``.get`` rather than indexing: a server
+                            # that predates these columns simply yields nulls,
+                            # which is also what a tenant without the
+                            # patrol_schemas preview feature yields.
+                            "segment_details": segment.get("segment_details"),
+                            "type_details": segment.get("type_details"),
+                            "team": segment.get("team"),
+                            "members": segment.get("members"),
+                            "assets": segment.get("assets"),
+                            "is_pause": segment.get("is_pause"),
                         }
                     )
         return pa.Table.from_pylist(rows, schema=PATROL_EVENTS_FLAT_SCHEMA_V1)
