@@ -90,21 +90,11 @@ OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1 = pa.schema(
 # Patrol Schemas
 # =========================================================================
 
-# A patrol leg's team, resolved. das serves the leg's ``team`` as a bare uuid and
-# says so deliberately -- a das client renders the name from
-# ``GET /activity/patrols/config/default/resolved/``. A warehouse consumer cannot
-# call das, so the warehouse resolves it here instead, using that endpoint's own
-# team shape verbatim.
-#
-# ``team_id`` is declared ``db_constraint=False`` with ``on_delete=SET_NULL`` in
-# das, so it may be null and may point at a team that no longer exists. The
-# resolution is a LEFT join: an unresolvable team yields a null struct, never a
-# dropped leg.
+# A leg's team, resolved to names rather than a bare id. The reference may be null
+# or dangling, so an unresolvable team must yield a null struct, never a dropped leg.
 PATROL_TEAM_STRUCT_V1 = pa.struct(
     [
         ("id", pa.string()),
-        # ``value`` is the stable key, ``display`` the renameable label. Both are
-        # kept so a team stays trackable across a rename.
         ("value", pa.string()),
         ("display", pa.string()),
         ("ordernum", pa.int64()),
@@ -112,24 +102,15 @@ PATROL_TEAM_STRUCT_V1 = pa.struct(
     ]
 )
 
-# A subject on a leg's members or assets roster, resolved. Same reasoning as
-# PATROL_TEAM_STRUCT_V1: das serves bare subject ids, the warehouse resolves
-# them, and the field names are the ones das's resolved roster uses. Two of its
-# fields are deliberately absent -- ``content_type``, which is always
-# ``observations.subject``, and ``image_url``, which is a das static path the
-# warehouse does not ingest.
-#
-# Order carries meaning (das duplicates the leader into the members list), and an
-# Arrow list is ordered by construction, so the link tables' ``ordernum`` decides
-# the order of this list rather than appearing as a field of it -- exactly as das
-# serves plain ordered arrays.
+# A subject on a leg's members or assets roster, resolved for the same reason as
+# PATROL_TEAM_STRUCT_V1. Roster order carries meaning but is not a field here:
+# an Arrow list is ordered, so the API's ordering reaches the consumer intact.
 PATROL_SEGMENT_SUBJECT_STRUCT_V1 = pa.struct(
     [
         ("id", pa.string()),
         ("name", pa.string()),
-        # Resolved through subjects -> subject_subtypes -> subject_types. das
-        # splits members from assets by this: members are ``person``, assets are
-        # anything not ``person``, ``wildlife`` or ``stationary-object``.
+        # Carried because members and assets are split by subject type, so a
+        # consumer cannot interpret either roster without it.
         ("subject_type", pa.string()),
         ("subject_subtype", pa.string()),
         ("subject_subtype_display", pa.string()),
@@ -139,11 +120,9 @@ PATROL_SEGMENT_SUBJECT_STRUCT_V1 = pa.struct(
 
 # Struct type for patrol segments (used in nested schema).
 #
-# The trailing six are the capture fields a leg records under the patrol_schemas
-# preview feature. They are appended, not interleaved, so the cast stays
-# positionally stable for existing readers (see the versioning rule at the top of
-# this module). A tenant without the feature -- and any row ingested before the
-# columns existed -- carries nulls; that is a normal state, not an error.
+# The trailing six are a leg's capture fields, appended rather than interleaved so
+# existing readers are undisturbed. They are null for a tenant without the feature
+# and for rows predating the columns; that is a normal state, not an error.
 PATROL_SEGMENT_STRUCT_V1 = pa.struct(
     [
         ("id", pa.string()),
@@ -156,32 +135,20 @@ PATROL_SEGMENT_STRUCT_V1 = pa.struct(
         ("scheduled_end", pa.string()),
         ("start_location", pa.string()),
         ("end_location", pa.string()),
-        # Captured against the tenant's site-wide segment schema. JSON text here;
-        # the API swaps in a struct derived from that schema when typed details
-        # are requested, exactly as ``event_details`` works. The site-wide schema
-        # is one per tenant, so this column is homogeneous and can always be
-        # typed -- no single-patrol-type restriction applies to it.
-        #     NULL   not captured, or the tenant has no patrol_schemas
-        #     '{}'   captured, and empty (das never reads details back as null)
-        #     JSON   the captured fields
+        # JSON text; the API swaps in a typed struct on request, as with
+        # ``event_details``. NULL means not captured, '{}' means captured-empty.
+        # One schema per tenant shapes this, so it can always be typed.
         ("segment_details", pa.string()),
-        # Captured against the leg's OWN patrol type schema, so a query spanning
-        # several patrol types is heterogeneous and one struct cannot describe it.
-        # Typing this one requires the query to name exactly one patrol type;
-        # otherwise it stays JSON text. Same null/'{}' convention as above.
+        # As above, but shaped by each leg's own patrol type -- so a query
+        # spanning several types cannot be typed and stays JSON text.
         ("type_details", pa.string()),
-        # See PATROL_TEAM_STRUCT_V1 / PATROL_SEGMENT_SUBJECT_STRUCT_V1. Empty
-        # rosters are ``[]``, matching das; NULL means not captured.
+        # An empty roster is ``[]``; NULL means not captured.
         ("team", PATROL_TEAM_STRUCT_V1),
         ("members", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
         ("assets", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
-        # True marks the leg as a pause rather than active patrolling. das
-        # excludes paused legs by default (PatrolsQuery.include_pauses mirrors
-        # that). NULL on warehouse rows written before the column existed: the
-        # das column is NOT NULL DEFAULT false, but warehouse history only gets a
-        # value from a backfill. TREAT NULL AS NOT-A-PAUSE -- filtering
-        # ``is_pause = false`` silently drops every un-backfilled leg, so the
-        # predicate is ``is_pause IS NOT TRUE``.
+        # Marks the leg as a pause rather than active patrolling; excluded by
+        # default (see PatrolsQuery.include_pauses). TREAT NULL AS NOT-A-PAUSE:
+        # it is null until backfilled, so ``= false`` drops every historical leg.
         ("is_pause", pa.bool_()),
     ]
 )
@@ -222,9 +189,7 @@ PATROLS_FLAT_SCHEMA_V1 = pa.schema(
         ("scheduled_end", pa.string()),
         ("start_location", pa.string()),
         ("end_location", pa.string()),
-        # Capture fields -- see PATROL_SEGMENT_STRUCT_V1 for the full semantics of
-        # each (null/'{}' conventions, the typed-details rules, and why NULL
-        # is_pause means not-a-pause).
+        # Capture fields; see PATROL_SEGMENT_STRUCT_V1 for their semantics.
         ("segment_details", pa.string()),
         ("type_details", pa.string()),
         ("team", PATROL_TEAM_STRUCT_V1),
@@ -337,12 +302,9 @@ PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1 = pa.struct(
 )
 
 # Nested patrols schema WITH events — selected only when include_events=true.
-# This is a SEPARATE versioned schema rather than a flag on PATROLS_NESTED_SCHEMA_V1
-# because its segments carry a different struct, not because published schemas are
-# frozen: appending to one is permitted, and PATROL_SEGMENT_STRUCT_V1's capture
-# fields were appended in place for exactly that reason. See the versioning rule at
-# the top of this module for what is and is not allowed, and for the deploy-ordering
-# constraint that makes an addition safe. It has the same top-level columns
+# This is a SEPARATE schema because its segments carry a different struct, not
+# because published schemas are frozen -- appending to one is permitted (see the
+# versioning rule at the top of this module). It has the same top-level columns
 # as PATROLS_NESTED_SCHEMA_V1, but each patrol segment carries its own events
 # (events are nested under ``patrol_segments[].events[]``, not at the top level).
 PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 = pa.schema(
@@ -383,9 +345,7 @@ PATROL_EVENTS_FLAT_SCHEMA_V1 = pa.schema(
         ("patrol_segment_id", pa.string()),
         ("patrol_type", pa.string()),
         ("patrol_start_time", pa.string()),
-        # Capture fields -- see PATROL_SEGMENT_STRUCT_V1 for the full semantics of
-        # each (null/'{}' conventions, the typed-details rules, and why NULL
-        # is_pause means not-a-pause).
+        # Capture fields; see PATROL_SEGMENT_STRUCT_V1 for their semantics.
         ("segment_details", pa.string()),
         ("type_details", pa.string()),
         ("team", PATROL_TEAM_STRUCT_V1),
@@ -410,16 +370,10 @@ EVENT_TYPES_SCHEMA_V1 = pa.schema(
 )
 
 
-# Listing schema for the warehouse ``GET /patrol_types`` endpoint — the patrol
-# counterpart of EVENT_TYPES_SCHEMA_V1, and the contract for patrol-type
-# display-name resolution.
-#
-# It deliberately does NOT carry the patrol type's schema document, for the same
-# reason EVENT_TYPES_SCHEMA_V1 does not: the document is served by the schema
-# endpoints, as serialized Arrow IPC schema bytes or as a JSON mapping, never as a
-# table column. Widening every row of a listing by a per-type JSON blob to save a
-# second request is a bad trade, and it would force a listing reader to parse a
-# schema it did not ask for.
+# Listing schema for ``GET /patrol_types`` — the patrol counterpart of
+# EVENT_TYPES_SCHEMA_V1, for display-name resolution. It carries no schema
+# document: that is per-type and served separately, and widening every listing
+# row with it would burden readers that never asked for it.
 PATROL_TYPES_SCHEMA_V1 = pa.schema(
     [  # type: ignore[arg-type]
         ("id", pa.string()),
