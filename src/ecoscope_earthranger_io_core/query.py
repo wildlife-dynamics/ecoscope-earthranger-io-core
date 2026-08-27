@@ -39,6 +39,30 @@ _INCLUDE_SUBJECT_ADDITIONAL_DESCRIPTION = (
 )
 
 
+_INCLUDE_PAUSES_DESCRIPTION = (
+    "If True, include patrol legs flagged as a pause rather than active "
+    "patrolling; if False (default), exclude them -- matching EarthRanger, so "
+    "totals such as distance and duration agree with what the product reports. "
+    "A leg ingested before the pause flag existed has no value for it and is "
+    "treated as not-a-pause, so excluding pauses never silently drops history."
+)
+
+_PATROL_RAW_DETAILS_DESCRIPTION = (
+    "Format override: serve `segment_details` and `type_details` as flat JSON "
+    "strings instead of typed structs. Set this to query across several patrol "
+    "types at once -- `type_details` is shaped by each leg's own patrol type, so "
+    "typing it requires the query to name exactly one. (`segment_details` is "
+    "shaped by the tenant's single site-wide segment schema and carries no such "
+    "restriction.)"
+)
+
+_PATROL_PARSE_DETAIL_DATETIMES_DESCRIPTION = (
+    "Typed-struct only: map `segment_details` / `type_details` date-time and "
+    "date fields to Arrow timestamp/date instead of strings. Ignored when "
+    "raw_details is True."
+)
+
+
 class ObservationsQuery(_WarehouseQuery):
     """An EarthRanger observations query.
 
@@ -293,6 +317,18 @@ class PatrolsQuery(_WarehouseQuery):
     include_patrol_segments: bool = False
     include_events: bool = True
     flat: bool = True
+    include_pauses: bool = Field(
+        default=False,
+        description=_INCLUDE_PAUSES_DESCRIPTION,
+    )
+    raw_details: bool = Field(
+        default=False,
+        description=_PATROL_RAW_DETAILS_DESCRIPTION,
+    )
+    parse_detail_datetimes: bool = Field(
+        default=False,
+        description=_PATROL_PARSE_DETAIL_DATETIMES_DESCRIPTION,
+    )
 
     @classmethod
     def from_query_params(
@@ -307,6 +343,18 @@ class PatrolsQuery(_WarehouseQuery):
         include_patrol_segments: bool = Query(False),
         include_events: bool = Query(True),
         flat: bool = Query(True),
+        include_pauses: bool = Query(
+            False,
+            description=_INCLUDE_PAUSES_DESCRIPTION,
+        ),
+        raw_details: bool = Query(
+            False,
+            description=_PATROL_RAW_DETAILS_DESCRIPTION,
+        ),
+        parse_detail_datetimes: bool = Query(
+            False,
+            description=_PATROL_PARSE_DETAIL_DATETIMES_DESCRIPTION,
+        ),
     ) -> "PatrolsQuery":
         return cls(
             tenant_domain=tenant_domain,
@@ -319,7 +367,129 @@ class PatrolsQuery(_WarehouseQuery):
             include_patrol_segments=include_patrol_segments,
             include_events=include_events,
             flat=flat,
+            include_pauses=include_pauses,
+            raw_details=raw_details,
+            parse_detail_datetimes=parse_detail_datetimes,
         )
+
+
+class PatrolTypesQuery(_TenantQuery):
+    """Query for the warehouse /patrol_types listing (tenant-scoped).
+
+    The patrol counterpart of ``EventTypesQuery``. The listing itself streams
+    against ``PATROL_TYPES_SCHEMA_V1``, which carries display names but not the
+    per-type schema documents; ``include_schema`` asks for those documents
+    alongside it, so a consumer building a form for every patrol type does not
+    have to follow up with one ``PatrolTypeSchemaQuery`` per type.
+
+    What "schema document" means: das stores each patrol type's schema as a
+    ``{"json": <JSON-Schema>, "ui": <form layout>}`` envelope. The API derives
+    the typed ``type_details`` Arrow struct from the ``json`` half -- so a
+    schema endpoint can serve either the derived Arrow struct or the stored
+    document, and neither belongs in a listing row.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import PatrolTypesQuery
+    >>> query = PatrolTypesQuery(tenant_domain="some-site.pamdas.org")
+    >>> query.include_schema
+    False
+
+    ```
+
+    Or asking for the schema documents too:
+
+    ```python
+    >>> query = PatrolTypesQuery(
+    ...     tenant_domain="some-site.pamdas.org",
+    ...     include_schema=True,
+    ... )
+    >>>
+    ```
+    """
+
+    include_schema: bool = Field(
+        default=False,
+        description=(
+            "If True, return each patrol type's schema document alongside the "
+            "listing; if False (default), return the listing alone. A schema "
+            "document is never a column of the Arrow listing -- it is a "
+            "per-type document served in its own right, the same way "
+            "`/events/schema` serves an event type's."
+        ),
+    )
+
+    @classmethod
+    def from_query_params(
+        cls,
+        tenant_domain: str = Query(...),
+        include_schema: bool = Query(False),
+    ) -> "PatrolTypesQuery":
+        return cls(tenant_domain=tenant_domain, include_schema=include_schema)
+
+
+class PatrolTypeSchemaQuery(_TenantQuery):
+    """Lookup for a single patrol type's ``type_details`` schema.
+
+    The patrol counterpart of ``EventTypeSchemaQuery``, and single-keyed for the
+    same reason: the typed ``type_details`` struct is derived from exactly one
+    patrol type's schema document.
+
+    ``patrol_type_value`` accepts either the patrol type's UUID or its ``value``
+    slug, as das does -- one key, two accepted spellings of it, rather than two
+    fields where a caller could set both.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import PatrolTypeSchemaQuery
+    >>> query = PatrolTypeSchemaQuery(
+    ...     tenant_domain="some-site.pamdas.org",
+    ...     patrol_type_value="routine_patrol",
+    ... )
+    >>>
+    ```
+    """
+
+    patrol_type_value: str
+
+    @classmethod
+    def from_query_params(
+        cls,
+        tenant_domain: str = Query(...),
+        patrol_type_value: str = Query(...),
+    ) -> "PatrolTypeSchemaQuery":
+        return cls(tenant_domain=tenant_domain, patrol_type_value=patrol_type_value)
+
+
+class SegmentSchemaQuery(_TenantQuery):
+    """Lookup for the tenant's site-wide patrol segment ("leg") schema.
+
+    Tenant is the only key: unlike patrol types, there is exactly one segment
+    schema per tenant, and it shapes the ``segment_details`` of every leg. That
+    is also why ``segment_details`` can always be served as a typed struct, with
+    no restriction on how many patrol types a patrol query spans.
+
+    A tenant that never authored a schema is a normal state, not an absent one:
+    das stores its canonical empty ``{json, ui}`` envelope, so this lookup has no
+    "not found" case to model.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import SegmentSchemaQuery
+    >>> query = SegmentSchemaQuery(tenant_domain="some-site.pamdas.org")
+    >>>
+    ```
+    """
+
+    @classmethod
+    def from_query_params(
+        cls,
+        tenant_domain: str = Query(...),
+    ) -> "SegmentSchemaQuery":
+        return cls(tenant_domain=tenant_domain)
 
 
 class _PatrolsQuery(_WarehouseQuery):

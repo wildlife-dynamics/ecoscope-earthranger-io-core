@@ -9,6 +9,13 @@ import geoarrow.pyarrow  # type: ignore[import-untyped]
 import pyarrow as pa
 
 
+# Schema versioning rule: additive, non-breaking changes to a published ``_V1``
+# schema are PERMITTED -- appending a field, or appending a field to a struct it
+# embeds. Removals, renames and type changes are NOT; those require a new ``_V2``
+# constant. An added field only reaches a reader once the column exists in
+# Iceberg, so ship the pipeline migration before the API release that picks it up.
+
+
 OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
     [
         ("created_at", pa.string()),
@@ -83,7 +90,39 @@ OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1 = pa.schema(
 # Patrol Schemas
 # =========================================================================
 
-# Struct type for patrol segments (used in nested schema)
+# A leg's team, resolved to names rather than a bare id. The reference may be null
+# or dangling, so an unresolvable team must yield a null struct, never a dropped leg.
+PATROL_TEAM_STRUCT_V1 = pa.struct(
+    [
+        ("id", pa.string()),
+        ("value", pa.string()),
+        ("display", pa.string()),
+        ("ordernum", pa.int64()),
+        ("is_active", pa.bool_()),
+    ]
+)
+
+# A subject on a leg's members or assets roster, resolved for the same reason as
+# PATROL_TEAM_STRUCT_V1. Roster order carries meaning but is not a field here:
+# an Arrow list is ordered, so the API's ordering reaches the consumer intact.
+PATROL_SEGMENT_SUBJECT_STRUCT_V1 = pa.struct(
+    [
+        ("id", pa.string()),
+        ("name", pa.string()),
+        # Carried because members and assets are split by subject type, so a
+        # consumer cannot interpret either roster without it.
+        ("subject_type", pa.string()),
+        ("subject_subtype", pa.string()),
+        ("subject_subtype_display", pa.string()),
+        ("is_active", pa.bool_()),
+    ]
+)
+
+# Struct type for patrol segments (used in nested schema).
+#
+# The trailing six are a leg's capture fields, appended rather than interleaved so
+# existing readers are undisturbed. They are null for a tenant without the feature
+# and for rows predating the columns; that is a normal state, not an error.
 PATROL_SEGMENT_STRUCT_V1 = pa.struct(
     [
         ("id", pa.string()),
@@ -96,6 +135,21 @@ PATROL_SEGMENT_STRUCT_V1 = pa.struct(
         ("scheduled_end", pa.string()),
         ("start_location", pa.string()),
         ("end_location", pa.string()),
+        # JSON text; the API swaps in a typed struct on request, as with
+        # ``event_details``. NULL means not captured, '{}' means captured-empty.
+        # One schema per tenant shapes this, so it can always be typed.
+        ("segment_details", pa.string()),
+        # As above, but shaped by each leg's own patrol type -- so a query
+        # spanning several types cannot be typed and stays JSON text.
+        ("type_details", pa.string()),
+        # An empty roster is ``[]``; NULL means not captured.
+        ("team", PATROL_TEAM_STRUCT_V1),
+        ("members", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
+        ("assets", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
+        # Marks the leg as a pause rather than active patrolling; excluded by
+        # default (see PatrolsQuery.include_pauses). TREAT NULL AS NOT-A-PAUSE:
+        # it is null until backfilled, so ``= false`` drops every historical leg.
+        ("is_pause", pa.bool_()),
     ]
 )
 
@@ -135,6 +189,13 @@ PATROLS_FLAT_SCHEMA_V1 = pa.schema(
         ("scheduled_end", pa.string()),
         ("start_location", pa.string()),
         ("end_location", pa.string()),
+        # Capture fields; see PATROL_SEGMENT_STRUCT_V1 for their semantics.
+        ("segment_details", pa.string()),
+        ("type_details", pa.string()),
+        ("team", PATROL_TEAM_STRUCT_V1),
+        ("members", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
+        ("assets", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
+        ("is_pause", pa.bool_()),
     ]
 )
 
@@ -241,8 +302,9 @@ PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1 = pa.struct(
 )
 
 # Nested patrols schema WITH events — selected only when include_events=true.
-# This is a NEW versioned schema: PATROLS_NESTED_SCHEMA_V1 is left untouched
-# (never mutate a published versioned schema). It has the same top-level columns
+# This is a SEPARATE schema because its segments carry a different struct, not
+# because published schemas are frozen -- appending to one is permitted (see the
+# versioning rule at the top of this module). It has the same top-level columns
 # as PATROLS_NESTED_SCHEMA_V1, but each patrol segment carries its own events
 # (events are nested under ``patrol_segments[].events[]``, not at the top level).
 PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 = pa.schema(
@@ -283,6 +345,13 @@ PATROL_EVENTS_FLAT_SCHEMA_V1 = pa.schema(
         ("patrol_segment_id", pa.string()),
         ("patrol_type", pa.string()),
         ("patrol_start_time", pa.string()),
+        # Capture fields; see PATROL_SEGMENT_STRUCT_V1 for their semantics.
+        ("segment_details", pa.string()),
+        ("type_details", pa.string()),
+        ("team", PATROL_TEAM_STRUCT_V1),
+        ("members", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
+        ("assets", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
+        ("is_pause", pa.bool_()),
     ]
 )
 
@@ -297,6 +366,21 @@ EVENT_TYPES_SCHEMA_V1 = pa.schema(
         ("category_display", pa.string()),
         ("is_active", pa.bool_()),
         ("is_collection", pa.bool_()),
+    ]
+)
+
+
+# Listing schema for ``GET /patrol_types`` — the patrol counterpart of
+# EVENT_TYPES_SCHEMA_V1, for display-name resolution. It carries no schema
+# document: that is per-type and served separately, and widening every listing
+# row with it would burden readers that never asked for it.
+PATROL_TYPES_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("value", pa.string()),
+        ("display", pa.string()),
+        ("ordernum", pa.int64()),
+        ("is_active", pa.bool_()),
     ]
 )
 

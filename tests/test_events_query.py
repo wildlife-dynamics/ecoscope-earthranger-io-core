@@ -127,5 +127,8 @@ def test_patrols_query_from_query_params_include_events(include_events):
         include_patrol_segments=False,
         include_events=include_events,
         flat=True,
+        include_pauses=False,
+        raw_details=False,
+        parse_detail_datetimes=False,
     )
     assert q.include_events is include_events

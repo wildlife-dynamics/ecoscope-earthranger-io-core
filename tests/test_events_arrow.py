@@ -7,7 +7,9 @@ from ecoscope_earthranger_io_core.arrow import (
     PATROL_EVENT_STRUCT_V1,
     PATROL_EVENTS_FLAT_SCHEMA_V1,
     PATROL_SEGMENT_STRUCT_V1,
+    PATROL_SEGMENT_SUBJECT_STRUCT_V1,
     PATROL_SEGMENT_WITH_EVENTS_STRUCT_V1,
+    PATROL_TEAM_STRUCT_V1,
     PATROLS_NESTED_SCHEMA_V1,
     PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
     REPORTED_BY_STRUCT_V1,
@@ -37,6 +39,14 @@ def test_patrol_events_flat_schema_v1_fields():
         ("patrol_segment_id", pa.string()),
         ("patrol_type", pa.string()),
         ("patrol_start_time", pa.string()),
+        # ERA-13955: the segment's capture fields, carried as event context.
+        # Types are asserted in test_patrols_arrow.py; this test owns the order.
+        ("segment_details", pa.string()),
+        ("type_details", pa.string()),
+        ("team", PATROL_TEAM_STRUCT_V1),
+        ("members", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
+        ("assets", pa.list_(PATROL_SEGMENT_SUBJECT_STRUCT_V1)),
+        ("is_pause", pa.bool_()),
     ]
     assert PATROL_EVENTS_FLAT_SCHEMA_V1.names == [n for n, _ in expected]
     for name, typ in expected:
@@ -157,8 +167,10 @@ def test_patrol_segment_with_events_struct_v1_fields():
 
 def test_patrols_nested_schema_v1_unchanged():
     """Regression guard: the published PATROLS_NESTED_SCHEMA_V1 must NOT gain an
-    events column, and PATROL_SEGMENT_STRUCT_V1 must NOT gain an events field
-    (never mutate a published versioned schema)."""
+    events column, and PATROL_SEGMENT_STRUCT_V1 must NOT gain an events field --
+    events belong to the with-events schema alone. This is a shape rule, not a
+    freeze: appending non-events fields to these is permitted (the capture fields
+    were), per the versioning rule at the top of arrow.py."""
     assert PATROLS_NESTED_SCHEMA_V1.names == [
         "id",
         "serial_number",
