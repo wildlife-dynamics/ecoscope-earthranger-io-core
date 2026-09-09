@@ -22,6 +22,14 @@ class _WarehouseQuery(_TenantQuery):
 
 PatrolStatus = Literal["active", "overdue", "done", "cancelled"]
 
+EventState = Literal["new", "active", "resolved", "review"]
+
+
+_EVENT_STATE_DESCRIPTION = (
+    "Filter to events in any of these lifecycle states "
+    "(new, active, resolved, review); None (default) = no state filter."
+)
+
 
 _PATROLS_OVERLAP_DATERANGE_DESCRIPTION = (
     "If True (default), include patrols whose time range overlaps "
@@ -171,12 +179,17 @@ class EventsQuery(_WarehouseQuery):
     ...     range_start=datetime(2023, 1, 1),
     ...     range_end=datetime(2023, 12, 31),
     ...     event_type=["wildlife_sighting"],
+    ...     state=["active"],
     ... )
     >>>
     ```
     """
 
     event_type: list[str] | None = None
+    state: list[EventState] | None = Field(
+        default=None,
+        description=_EVENT_STATE_DESCRIPTION,
+    )
     include_null_geometry: bool = Field(
         default=True,
         description=(
@@ -230,6 +243,9 @@ class EventsQuery(_WarehouseQuery):
         range_start: datetime | None = Query(None),
         range_end: datetime | None = Query(None),
         event_type: list[str] | None = Query(None),
+        state: list[EventState] | None = Query(
+            None, description=_EVENT_STATE_DESCRIPTION
+        ),
         include_null_geometry: bool = Query(True),
         include_details: bool = Query(False),
         raw_details: bool = Query(False),
@@ -242,6 +258,7 @@ class EventsQuery(_WarehouseQuery):
             range_start=range_start,
             range_end=range_end,
             event_type=event_type,
+            state=state,
             include_null_geometry=include_null_geometry,
             include_details=include_details,
             raw_details=raw_details,

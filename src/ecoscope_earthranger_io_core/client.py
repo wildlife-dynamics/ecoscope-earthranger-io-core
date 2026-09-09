@@ -776,6 +776,7 @@ class ERWarehouseClient(BaseModel):
         since: str | None = None,
         until: str | None = None,
         event_type: list[str] | None = None,
+        state: list[str] | None = None,
         drop_null_geometry: bool = False,
         include_details: bool = False,
         include_updates: bool = False,
@@ -793,6 +794,8 @@ class ERWarehouseClient(BaseModel):
             since: Start of time range (ISO 8601 format). Optional.
             until: End of time range (ISO 8601 format). Optional.
             event_type: List of event type values to filter by.
+            state: List of event lifecycle states to filter by (any of "new",
+                "active", "resolved", "review"). None (default) = no state filter.
             drop_null_geometry: If True, exclude events without geometry. Maps to
                 the API's ``include_null_geometry`` (inverse).
             include_details: Include the ``event_details`` payload. When False
@@ -880,6 +883,7 @@ class ERWarehouseClient(BaseModel):
             range_start=datetime.fromisoformat(since) if since else None,
             range_end=datetime.fromisoformat(until) if until else None,
             event_type=event_type or None,
+            state=state or None,  # type: ignore[arg-type]
             include_null_geometry=not drop_null_geometry,
             include_details=want_typed or raw_details,
             raw_details=raw_details,

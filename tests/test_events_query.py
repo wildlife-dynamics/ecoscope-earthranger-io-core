@@ -19,6 +19,7 @@ def test_events_query_minimal_no_event_ids_required():
     """EventsQuery constructs with only tenant_domain; event_ids no longer exists."""
     q = EventsQuery(tenant_domain="example.pamdas.org")
     assert q.event_type is None
+    assert q.state is None
     assert q.include_null_geometry is True
     assert q.range_start is None and q.range_end is None
     assert "event_ids" not in q.model_dump()
@@ -30,10 +31,30 @@ def test_events_query_full():
         range_start=datetime(2023, 1, 1),
         range_end=datetime(2023, 12, 31),
         event_type=["wildlife_sighting", "poaching"],
+        state=["active", "new"],
         include_null_geometry=False,
     )
     assert q.event_type == ["wildlife_sighting", "poaching"]
+    assert q.state == ["active", "new"]
     assert q.include_null_geometry is False
+
+
+def test_events_query_rejects_invalid_state():
+    """state is constrained to the EventState literal set."""
+    with pytest.raises(ValidationError):
+        EventsQuery(tenant_domain="example.pamdas.org", state=["bogus"])
+
+
+@pytest.mark.parametrize("state", ["active", "new", "resolved", "review"])
+def test_events_query_state_unset_dropped_from_wire(state):
+    """A set state serializes; an unset (None) state is omitted from the POST body
+    via exclude_none, so None means 'no state filter'."""
+    q = EventsQuery(tenant_domain="example.pamdas.org", state=[state])
+    body = q.model_dump(mode="json", exclude_none=True)
+    assert body["state"] == [state]
+    assert "state" not in EventsQuery(tenant_domain="example.pamdas.org").model_dump(
+        mode="json", exclude_none=True
+    )
 
 
 def test_events_query_rejects_event_ids_kwarg():
@@ -60,6 +81,7 @@ def test_events_query_from_query_params_round_trip(include_null_geometry):
         range_start=None,
         range_end=None,
         event_type=["a", "b"],
+        state=["active", "resolved"],
         include_null_geometry=include_null_geometry,
         include_details=True,
         raw_details=False,
@@ -68,6 +90,7 @@ def test_events_query_from_query_params_round_trip(include_null_geometry):
         invalid_only=True,
     )
     assert q.event_type == ["a", "b"]
+    assert q.state == ["active", "resolved"]
     assert q.include_null_geometry is include_null_geometry
     assert q.include_details is True
     assert q.raw_details is False
