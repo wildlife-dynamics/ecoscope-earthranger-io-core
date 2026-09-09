@@ -780,6 +780,7 @@ class ERWarehouseClient(BaseModel):
         include_details: bool = False,
         include_updates: bool = False,
         include_related_events: bool = False,
+        state: list[str] | None = None,
         *,
         raw_details: bool = False,
         parse_detail_datetimes: bool = False,
@@ -802,6 +803,8 @@ class ERWarehouseClient(BaseModel):
                 otherwise); it does NOT silently fall back to raw.
             include_updates: Unsupported; raises NotImplementedError.
             include_related_events: Unsupported; raises NotImplementedError.
+            state: List of event lifecycle states to filter by (any of "new",
+                "active", "resolved", "review"). None (default) = no state filter.
             raw_details: Format override — return ``event_details`` as a flat JSON
                 string (``EVENTS_SCHEMA_V1``) instead of the typed struct, which
                 works across any number of event types. Composes with
@@ -880,6 +883,7 @@ class ERWarehouseClient(BaseModel):
             range_start=datetime.fromisoformat(since) if since else None,
             range_end=datetime.fromisoformat(until) if until else None,
             event_type=event_type or None,
+            state=state or None,  # type: ignore[arg-type]
             include_null_geometry=not drop_null_geometry,
             include_details=want_typed or raw_details,
             raw_details=raw_details,
