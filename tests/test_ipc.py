@@ -929,6 +929,40 @@ def test_client_get_events_forwards_invalid_details(app: FastAPI) -> None:
     assert captured["body"]["invalid_details"] == "coerce"
 
 
+def test_client_get_events_forwards_state(app: FastAPI) -> None:
+    """A state filter threads through into the EventsQuery body."""
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(
+            event_type=["wildlife_sighting"],
+            state=["active", "resolved"],
+        )
+    assert captured["body"]["state"] == ["active", "resolved"]
+
+
+def test_client_get_events_empty_state_collapses_to_no_filter(app: FastAPI) -> None:
+    """state=[] means "no filter": it collapses to None and is dropped from the
+    body (parity with event_type), rather than filtering to zero states."""
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        er_client = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        )
+        er_client.get_events(event_type=["wildlife_sighting"], state=[])
+    assert "state" not in captured["body"]
+
+
 def test_client_get_events_rejects_unsupported() -> None:
     """include_updates raises NotImplementedError; typed flags require one type."""
     er_client = ERWarehouseClient(
