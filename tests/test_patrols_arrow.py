@@ -1,4 +1,5 @@
 import pyarrow as pa
+import pytest
 
 from ecoscope_earthranger_io_core.arrow import (
     PATROL_EVENTS_FLAT_SCHEMA_V1,
@@ -11,6 +12,7 @@ from ecoscope_earthranger_io_core.arrow import (
     PATROLS_NESTED_SCHEMA_V1,
     PATROLS_ONLY_SCHEMA_V1,
     PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
+    patrol_events_flat_schema,
 )
 
 
@@ -304,3 +306,105 @@ def test_member_order_survives_an_ipc_round_trip():
     back = pa.ipc.open_stream(sink.getvalue()).read_all()
     read_members = back.to_pylist()[0]["patrol_segments"][0]["members"]
     assert [m["id"] for m in read_members] == ["0", "1", "2", "3", "4"]
+
+
+def test_patrol_events_flat_schema_defaults_to_the_published_schema() -> None:
+    """JSON-text details leave PATROL_EVENTS_FLAT_SCHEMA_V1 untouched."""
+    assert patrol_events_flat_schema().equals(PATROL_EVENTS_FLAT_SCHEMA_V1)
+    assert patrol_events_flat_schema(
+        segment_details_type=pa.string(), type_details_type=pa.string()
+    ).equals(PATROL_EVENTS_FLAT_SCHEMA_V1)
+
+
+def test_patrol_events_flat_schema_expands_structs_in_place() -> None:
+    """A typed struct becomes one prefixed column per field, where it stood."""
+    schema = patrol_events_flat_schema(
+        segment_details_type=pa.struct([("weather", pa.string())]),
+        type_details_type=pa.struct([("vehicle", pa.string()), ("crew", pa.int64())]),
+    )
+
+    names = schema.names
+    assert "segment_details" not in names
+    assert "type_details" not in names
+    assert names[names.index("segment__weather") + 1 : names.index("team")] == [
+        "type__vehicle",
+        "type__crew",
+    ]
+    assert schema.field("type__crew").type == pa.int64()
+    # The published schema is shared module state; deriving must not mutate it.
+    assert "segment_details" in PATROL_EVENTS_FLAT_SCHEMA_V1.names
+
+
+def test_patrol_events_flat_schema_expands_one_side_only() -> None:
+    """segment_details can be typed while type_details stays JSON text."""
+    schema = patrol_events_flat_schema(
+        segment_details_type=pa.struct([("weather", pa.string())])
+    )
+
+    assert "segment__weather" in schema.names
+    assert schema.field("type_details").type == pa.string()
+
+
+def test_patrol_events_flat_schema_keeps_an_empty_struct_as_json_text() -> None:
+    """An empty struct has no fields, so expanding it would drop the column.
+
+    The API declines to type an empty struct for the same reason; this is the
+    client's own guard against a server that ever stops doing so.
+    """
+    schema = patrol_events_flat_schema(segment_details_type=pa.struct([]))
+
+    assert schema.field("segment_details").type == pa.string()
+    assert not [n for n in schema.names if n.startswith("segment__")]
+
+
+def test_patrol_events_flat_schema_rejects_a_colliding_field_name() -> None:
+    """Two detail fields flattening to one column name is an error.
+
+    Arrow permits duplicate field names in a struct and in a schema, so an
+    unguarded collision yields two columns of the same name and binds values
+    to whichever comes first. The prefixes keep the two detail columns clear
+    of each other and of the published columns, so a duplicate key inside one
+    struct is the case that actually reaches this.
+    """
+    with pytest.raises(ValueError, match="collide"):
+        patrol_events_flat_schema(
+            segment_details_type=pa.struct(
+                [("weather", pa.string()), ("weather", pa.int64())]
+            ),
+        )
+
+
+def test_empty_struct_details_round_trip_into_the_flat_table() -> None:
+    """The schema and the values must agree about an empty struct.
+
+    The schema keeps the column as JSON text, so the dict pyarrow yields for a
+    struct-typed column has to be re-serialized or the table build fails with
+    an opaque ArrowTypeError.
+    """
+    from ecoscope_earthranger_io_core.client import (
+        _flatten_segment_details,
+        _segment_detail_types,
+    )
+
+    segment_type = pa.struct(
+        [("segment_details", pa.struct([])), ("type_details", pa.string())]
+    )
+    patrols = pa.table(
+        {
+            "patrol_segments": pa.array(
+                [[{"segment_details": {}, "type_details": None}]],
+                type=pa.list_(segment_type),
+            )
+        }
+    )
+    detail_types = _segment_detail_types(patrols)
+    segment = patrols.to_pylist()[0]["patrol_segments"][0]
+    row = _flatten_segment_details(segment, detail_types)
+
+    assert row["segment_details"] == "{}"
+    schema = patrol_events_flat_schema(
+        segment_details_type=detail_types["segment_details"],
+        type_details_type=detail_types["type_details"],
+    )
+    table = pa.Table.from_pylist([row], schema=schema)
+    assert table.column("segment_details").to_pylist() == ["{}"]

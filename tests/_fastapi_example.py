@@ -11,6 +11,7 @@ from ecoscope_earthranger_io_core.arrow import (
     EVENT_TYPES_SCHEMA_V1,
     EVENTS_SCHEMA_V1,
     OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1,
+    PATROL_TYPES_SCHEMA_V1,
     PATROLS_NESTED_SCHEMA_V1,
     PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
     TRANSFORMS,
@@ -23,7 +24,10 @@ from ecoscope_earthranger_io_core.query import (
     EventTypesQuery,
     ObservationsQuery,
     PatrolsQuery,
+    PatrolTypeSchemaQuery,
+    PatrolTypesQuery,
     QueryEngine,
+    SegmentSchemaQuery,
 )
 
 from conftest import (
@@ -183,9 +187,14 @@ app.include_router(observations)
 patrols = APIRouter(prefix="/patrols")
 
 
-def _build_patrols_with_events_record_batch() -> pa.RecordBatch:
+def _build_patrols_with_events_record_batch(
+    schema: pa.Schema | None = None,
+    segment_details: object = None,
+    type_details: object = None,
+) -> pa.RecordBatch:
     """Build a canned patrols-with-events RecordBatch (one patrol, one segment,
-    one event) conforming to PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1."""
+    one event) conforming to PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1, or to the
+    typed-details variant of it."""
     # WKB for POINT (0 1): little-endian byte order, geometry type 1 (Point),
     # then the x and y doubles.
     event_geometry = struct.pack("<BIdd", 1, 1, 0.0, 1.0)
@@ -215,6 +224,8 @@ def _build_patrols_with_events_record_batch() -> pa.RecordBatch:
         "start_location": None,
         "end_location": None,
         "leader_name": "Ranger Zero",
+        "segment_details": segment_details,
+        "type_details": type_details,
         "events": [event],
     }
     patrol = {
@@ -229,7 +240,58 @@ def _build_patrols_with_events_record_batch() -> pa.RecordBatch:
         "patrol_segments": [segment],
     }
     return pa.RecordBatch.from_pylist(
-        [patrol], schema=PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1
+        [patrol], schema=schema or PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1
+    )
+
+
+def _patrols_details_shape(
+    query: PatrolsQuery,
+) -> tuple[pa.Schema, object, object]:
+    """Pick the response's detail shape and values for this query.
+
+    Mirrors the API: ``segment_details`` is typed whenever ``raw_details`` is
+    unset, whatever the patrol-type cardinality, while ``type_details`` also
+    needs the query to name exactly one type. A tenant whose schema defines no
+    fields is served JSON text rather than an empty struct -- the API's
+    ``_type_if_fields`` rule -- which the empty-schema tenant below exercises.
+    """
+    raw_segment = '{"weather": "clear"}'
+    raw_type = '{"vehicle": "landcruiser"}'
+    if query.raw_details:
+        return (PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1, raw_segment, raw_type)
+
+    # _type_if_fields is per column, so the two demote independently. Two
+    # tenants model that: one with no schemas at all, and one whose site-wide
+    # segment schema has fields while its patrol types' schemas do not -- the
+    # case that separates the two detail columns.
+    no_schemas = "no-schemas.pamdas.org" in query.tenant_domain
+    no_type_schema = "no-type-schema.pamdas.org" in query.tenant_domain
+    segment_details_type = (
+        None
+        if no_schemas
+        else _canned_segment_details_struct(query.parse_detail_datetimes)
+    )
+    names_one_patrol_type = len(query.patrol_type_value or []) == 1
+    type_details_type = (
+        _canned_type_details_struct(query.parse_detail_datetimes)
+        if names_one_patrol_type and not (no_schemas or no_type_schema)
+        else None
+    )
+    when = datetime(2015, 1, 1, tzinfo=timezone.utc)
+    return (
+        _typed_patrols_schema(segment_details_type, type_details_type),
+        raw_segment
+        if segment_details_type is None
+        else {
+            "weather": "clear",
+            "briefed_at": when if query.parse_detail_datetimes else "2015-01-01",
+        },
+        raw_type
+        if type_details_type is None
+        else {
+            "vehicle": "landcruiser",
+            "departed_at": when if query.parse_detail_datetimes else "2015-01-01",
+        },
     )
 
 
@@ -243,10 +305,15 @@ async def get_patrols_streaming_arrow(
     async def generate_arrow_bytes():
         """Generate Arrow IPC stream bytes."""
         if query.include_events:
+            schema, segment_details, type_details = _patrols_details_shape(query)
             sink = pa.BufferOutputStream()
-            writer = pa.ipc.new_stream(sink, PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1)
+            writer = pa.ipc.new_stream(sink, schema)
             try:
-                writer.write_batch(_build_patrols_with_events_record_batch())
+                writer.write_batch(
+                    _build_patrols_with_events_record_batch(
+                        schema, segment_details, type_details
+                    )
+                )
             finally:
                 writer.close()
             yield sink.getvalue().to_pybytes()
@@ -278,6 +345,87 @@ async def search_patrols_streaming_arrow(
 ):
     """POST twin of the GET route: filters arrive as a JSON body."""
     return await get_patrols_streaming_arrow(query=query, store_type=store_type)
+
+
+# Canned patrol schema documents. The real API derives these structs from the
+# tenant's stored JSON-Schema; the fixture serves fixed ones.
+_KNOWN_PATROL_TYPES = ("routine_patrol", "aerial_patrol")
+
+
+def _canned_segment_details_struct(parse_detail_datetimes: bool) -> pa.StructType:
+    """The site-wide segment_details struct — one per tenant, so every leg
+    shares it however many patrol types a query spans."""
+    when_type = pa.timestamp("ns", tz="UTC") if parse_detail_datetimes else pa.string()
+    return pa.struct([("weather", pa.string()), ("briefed_at", when_type)])
+
+
+def _canned_type_details_struct(parse_detail_datetimes: bool) -> pa.StructType:
+    """The per-patrol-type type_details struct."""
+    when_type = pa.timestamp("ns", tz="UTC") if parse_detail_datetimes else pa.string()
+    return pa.struct([("vehicle", pa.string()), ("departed_at", when_type)])
+
+
+def _typed_patrols_schema(
+    segment_details_type: pa.DataType | None,
+    type_details_type: pa.DataType | None,
+) -> pa.Schema:
+    """Swap typed detail fields into a copy of the nested patrols schema.
+
+    A copy, never a mutation: the published schema is shared module state.
+    """
+    base = PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1
+    index = base.get_field_index("patrol_segments")
+    segment = base.field(index).type.value_type
+    swaps = {
+        "segment_details": segment_details_type,
+        "type_details": type_details_type,
+    }
+    fields = [
+        pa.field(f.name, swap) if (swap := swaps.get(f.name)) is not None else f
+        for f in segment
+    ]
+    return base.set(index, pa.field("patrol_segments", pa.list_(pa.struct(fields))))
+
+
+@patrols.get("/schema")
+async def get_patrol_type_schema(
+    query: PatrolTypeSchemaQuery = Depends(PatrolTypeSchemaQuery.from_query_params),
+    parse_detail_datetimes: bool = Query(False),
+    format: Literal["arrow", "json"] = Query("arrow"),
+):
+    """Return one patrol type's type_details struct (Arrow schema message or JSON)."""
+    if query.patrol_type_value not in _KNOWN_PATROL_TYPES:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Patrol type '{query.patrol_type_value}' not found for this tenant."
+            ),
+        )
+    details_struct = _canned_type_details_struct(parse_detail_datetimes)
+    if format == "json":
+        return JSONResponse({f.name: str(f.type) for f in details_struct})
+    return Response(
+        content=pa.schema([("type_details", details_struct)]).serialize().to_pybytes(),
+        media_type="application/vnd.apache.arrow.schema",
+    )
+
+
+@patrols.get("/segments/schema")
+async def get_segment_schema(
+    query: SegmentSchemaQuery = Depends(SegmentSchemaQuery.from_query_params),
+    parse_detail_datetimes: bool = Query(False),
+    format: Literal["arrow", "json"] = Query("arrow"),
+):
+    """Return the tenant's segment_details struct. No 404 case: one per tenant."""
+    details_struct = _canned_segment_details_struct(parse_detail_datetimes)
+    if format == "json":
+        return JSONResponse({f.name: str(f.type) for f in details_struct})
+    return Response(
+        content=pa.schema([("segment_details", details_struct)])
+        .serialize()
+        .to_pybytes(),
+        media_type="application/vnd.apache.arrow.schema",
+    )
 
 
 app.include_router(patrols)
@@ -463,3 +611,56 @@ async def get_event_types_streaming_arrow(
 
 
 app.include_router(event_types)
+
+
+patrol_types = APIRouter()
+
+
+def _build_patrol_types_record_batch() -> pa.RecordBatch:
+    """Build a canned patrol types RecordBatch conforming to PATROL_TYPES_SCHEMA_V1."""
+    rows = [
+        {
+            "id": "pt1",
+            "value": "routine_patrol",
+            "display": "Routine Patrol",
+            "ordernum": 1,
+            "is_active": True,
+        },
+        {
+            "id": "pt2",
+            "value": "aerial_patrol",
+            "display": "Aerial Patrol",
+            "ordernum": 2,
+            "is_active": True,
+        },
+    ]
+    arrays = [
+        pa.array([r[field.name] for r in rows], type=field.type)
+        for field in PATROL_TYPES_SCHEMA_V1
+    ]
+    return pa.RecordBatch.from_arrays(arrays, schema=PATROL_TYPES_SCHEMA_V1)
+
+
+@patrol_types.get("/patrol_types")
+async def get_patrol_types_streaming_arrow(
+    query: PatrolTypesQuery = Depends(PatrolTypesQuery.from_query_params),
+    store_type: QueryEngine | None = Query(None),
+):
+    """Stream patrol types as an Arrow IPC stream."""
+
+    def generate_arrow_bytes():
+        sink = pa.BufferOutputStream()
+        writer = pa.ipc.new_stream(sink, PATROL_TYPES_SCHEMA_V1)
+        try:
+            writer.write_batch(_build_patrol_types_record_batch())
+        finally:
+            writer.close()
+        yield sink.getvalue().to_pybytes()
+
+    return StreamingResponse(
+        generate_arrow_bytes(),
+        media_type="application/vnd.apache.arrow.stream",
+    )
+
+
+app.include_router(patrol_types)
