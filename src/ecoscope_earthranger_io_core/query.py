@@ -57,11 +57,14 @@ _INCLUDE_PAUSES_DESCRIPTION = (
 
 _PATROL_RAW_DETAILS_DESCRIPTION = (
     "Format override: serve `segment_details` and `type_details` as flat JSON "
-    "strings instead of typed structs. Set this to query across several patrol "
-    "types at once -- `type_details` is shaped by each leg's own patrol type, so "
-    "typing it requires the query to name exactly one. (`segment_details` is "
-    "shaped by the tenant's single site-wide segment schema and carries no such "
-    "restriction.)"
+    "strings instead of typed structs. Patrol-type cardinality is never an "
+    "error, so this is not required to query across several types: "
+    "`type_details` is shaped by each leg's own patrol type, so typing it "
+    "requires the query to name exactly one, and any other query is simply "
+    "served the stored JSON text for that column. (`segment_details` is shaped "
+    "by the tenant's single site-wide segment schema and carries no such "
+    "restriction.) Set this when you want JSON text for both columns "
+    "regardless."
 )
 
 _PATROL_PARSE_DETAIL_DATETIMES_DESCRIPTION = (

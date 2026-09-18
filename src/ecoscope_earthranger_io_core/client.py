@@ -13,15 +13,148 @@ import httpx
 import pyarrow as pa
 from pydantic import BaseModel, PrivateAttr, SecretStr, field_validator
 
-from ecoscope_earthranger_io_core.arrow import PATROL_EVENTS_FLAT_SCHEMA_V1
+from ecoscope_earthranger_io_core.arrow import (
+    DETAIL_FLATTEN_PREFIXES,
+    detail_expands_to_columns,
+    patrol_events_flat_schema,
+)
 from ecoscope_earthranger_io_core.query import (
     EventsQuery,
     EventTypeSchemaQuery,
     EventTypesQuery,
     ObservationsQuery,
     PatrolsQuery,
+    PatrolTypeSchemaQuery,
+    PatrolTypesQuery,
     QueryEngine,
+    SegmentSchemaQuery,
 )
+
+
+def _http_detail(response: httpx.Response) -> str | None:
+    """Return the API's ``detail`` message from an error response, if any."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    return detail if isinstance(detail, str) else None
+
+
+def _segment_detail_types(patrols: pa.Table) -> dict[str, pa.DataType | None]:
+    """Read the detail field types off a nested patrols table's segment struct.
+
+    Keyed by column name rather than positional, so adding a third detail
+    column cannot silently mis-pair a type with the wrong column. Every value
+    is None for a response without segments, which leaves the flat schema at
+    its published shape.
+    """
+    index = patrols.schema.get_field_index("patrol_segments")
+    absent: dict[str, pa.DataType | None] = dict.fromkeys(DETAIL_FLATTEN_PREFIXES)
+    if index < 0:
+        return absent
+    segments_type = patrols.schema.field(index).type
+    if not pa.types.is_list(segments_type):
+        return absent
+    segment = segments_type.value_type
+    if not pa.types.is_struct(segment):
+        return absent
+    return {name: _field_type(segment, name) for name in DETAIL_FLATTEN_PREFIXES}
+
+
+def _field_type(struct: pa.StructType, name: str) -> pa.DataType | None:
+    """The type of *name* in *struct*, or None when it carries no such field."""
+    index = struct.get_field_index(name)
+    return struct.field(index).type if index >= 0 else None
+
+
+def _flatten_segment_details(
+    segment: dict[str, Any],
+    detail_types: dict[str, pa.DataType | None],
+) -> dict[str, Any]:
+    """Project a segment's detail fields into the flat event row.
+
+    A typed struct becomes one prefixed column per field, per the das contract;
+    JSON text stays under its own name. Kept in step with
+    ``patrol_events_flat_schema``, which decides the same way which columns the
+    flat schema carries.
+    """
+    flattened: dict[str, Any] = {}
+    for name, prefix in DETAIL_FLATTEN_PREFIXES.items():
+        details_type = detail_types.get(name)
+        value = segment.get(name)
+        if not detail_expands_to_columns(details_type):
+            # An empty struct has no fields to expand, so the flat schema keeps
+            # the column as JSON text -- but the value still arrives as a dict,
+            # which has to be re-serialized to match it.
+            if (
+                value is not None
+                and details_type is not None
+                and pa.types.is_struct(details_type)
+            ):
+                value = json.dumps(value)
+            flattened[name] = value
+            continue
+        for key, detail in (value or {}).items():
+            flattened[f"{prefix}{key}"] = detail
+    return flattened
+
+
+def _validate_patrol_detail_mode(
+    *,
+    patrol_type_value: list[str] | None,
+    raw_details: bool,
+    parse_detail_datetimes: bool,
+    typed_type_details: bool,
+) -> None:
+    """Reject the detail-mode combinations the warehouse cannot serve.
+
+    Only ``type_details`` is bound to a single patrol type, because it is
+    shaped by each leg's own type. ``segment_details`` comes from the tenant's
+    one site-wide segment schema, so it stays typed no matter how many types a
+    query spans -- gating it on cardinality would make the unfiltered query,
+    which is most of them, untypeable for no reason.
+    """
+    if raw_details and parse_detail_datetimes:
+        raise ValueError(
+            "parse_detail_datetimes shapes the typed details struct, so it "
+            "cannot be combined with raw_details=True, which opts out of it."
+        )
+    if typed_type_details and raw_details:
+        raise ValueError(
+            "typed_type_details asks for a typed type_details struct, which "
+            "raw_details=True opts out of."
+        )
+    if typed_type_details and len(patrol_type_value or []) != 1:
+        raise ValueError(
+            "typed_type_details requires exactly one patrol_type_value "
+            f"(got {len(patrol_type_value or [])}): type_details is shaped by "
+            "each leg's own patrol type, so a query spanning several of them "
+            "has no single struct to describe it. Pass raw_details=True for "
+            "flat JSON strings, or drop typed_type_details to let the "
+            "warehouse serve type_details as JSON text while segment_details "
+            "stays typed."
+        )
+
+
+def _assert_typed_type_details(patrols: pa.Table) -> None:
+    """Check the warehouse actually served ``type_details`` as a typed struct.
+
+    Naming one patrol type is necessary but not sufficient: a known type whose
+    schema defines no fields is served as JSON text too, because typing it to
+    an empty struct would drop the column. Without this the flag would be a
+    request the caller believes is a guarantee.
+    """
+    if detail_expands_to_columns(_segment_detail_types(patrols)["type_details"]):
+        return
+    raise ValueError(
+        "typed_type_details was requested but the warehouse served "
+        "type_details as JSON text. Either the patrol type's schema defines "
+        "no fields, or patrol_type_value does not name a type this tenant "
+        "has (a patrols query returns no rows for an unknown type rather "
+        "than failing; get_patrol_schema reports it as a 404). Drop "
+        "typed_type_details to accept the JSON text."
+    )
 
 
 async def _get_table(
@@ -183,6 +316,7 @@ class ERWarehouseClient(BaseModel):
     warehouse_patrols_endpoint: str = "/patrols"
     warehouse_events_endpoint: str = "/events"
     warehouse_event_types_endpoint: str = "/event_types"
+    warehouse_patrol_types_endpoint: str = "/patrol_types"
     query_engine: QueryEngine = "auto"
 
     _resolved_base_url: str | None = PrivateAttr(default=None)
@@ -401,19 +535,25 @@ class ERWarehouseClient(BaseModel):
             )
         return table
 
-    async def _fetch_event_schema(
+    async def _fetch_details_schema(
         self,
-        query: EventTypeSchemaQuery,
+        route: str,
+        query: BaseModel,
         *,
         parse_detail_datetimes: bool,
         fmt: Literal["arrow", "json"],
         query_engine: QueryEngine = "auto",
+        not_found_hint: str | None = None,
     ) -> "pa.Schema | dict[str, Any]":
-        """Fetch the event_details schema from the /events/schema endpoint.
+        """Fetch a details-struct schema from one of the discovery endpoints.
 
-        Unlike the streaming endpoints, /events/schema returns a bare Arrow
-        *schema message* (read with ``pa.ipc.read_schema``), not an IPC stream,
-        or — with ``fmt="json"`` — an informational ``{field: type_str}`` mapping.
+        Unlike the streaming endpoints, these return a bare Arrow *schema
+        message* (read with ``pa.ipc.read_schema``), not an IPC stream, or —
+        with ``fmt="json"`` — an informational ``{field: type_str}`` mapping.
+
+        ``not_found_hint`` names the key that a 404 refers to, so an unknown
+        type surfaces as a ValueError the caller can read rather than a bare
+        HTTP status.
         """
         params = query.model_dump(exclude_none=True)
         params["store_type"] = query_engine
@@ -422,15 +562,92 @@ class ERWarehouseClient(BaseModel):
             params["parse_detail_datetimes"] = True
         async with self._httpx_client() as client:
             response = await client.get(
-                f"{self.warehouse_events_endpoint}/schema",
+                route,
                 params=params,
                 headers=self._get_auth_headers(),
                 timeout=600,
             )
+            if response.status_code == 404 and not_found_hint is not None:
+                raise ValueError(_http_detail(response) or not_found_hint)
             response.raise_for_status()
             if fmt == "json":
                 return response.json()
             return pa.ipc.read_schema(pa.py_buffer(response.content))
+
+    async def _fetch_event_schema(
+        self,
+        query: EventTypeSchemaQuery,
+        *,
+        parse_detail_datetimes: bool,
+        fmt: Literal["arrow", "json"],
+        query_engine: QueryEngine = "auto",
+    ) -> "pa.Schema | dict[str, Any]":
+        """Fetch the event_details schema from the /events/schema endpoint."""
+        return await self._fetch_details_schema(
+            f"{self.warehouse_events_endpoint}/schema",
+            query,
+            parse_detail_datetimes=parse_detail_datetimes,
+            fmt=fmt,
+            query_engine=query_engine,
+        )
+
+    async def _fetch_patrol_types_arrow(
+        self,
+        query: PatrolTypesQuery,
+        query_engine: QueryEngine = "auto",
+    ) -> pa.Table:
+        """Internal async method to fetch patrol types as Arrow table."""
+        async with self._httpx_client() as client:
+            table = await _get_table(
+                client=client,
+                route=self.warehouse_patrol_types_endpoint,
+                query=query,
+                headers=self._get_auth_headers(),
+                store_type=query_engine,
+            )
+        return table
+
+    async def _fetch_patrol_schema(
+        self,
+        query: PatrolTypeSchemaQuery,
+        *,
+        parse_detail_datetimes: bool,
+        fmt: Literal["arrow", "json"],
+        query_engine: QueryEngine = "auto",
+    ) -> "pa.Schema | dict[str, Any]":
+        """Fetch one patrol type's type_details schema from /patrols/schema."""
+        return await self._fetch_details_schema(
+            f"{self.warehouse_patrols_endpoint}/schema",
+            query,
+            parse_detail_datetimes=parse_detail_datetimes,
+            fmt=fmt,
+            query_engine=query_engine,
+            not_found_hint=(
+                f"Patrol type {query.patrol_type_value!r} not found for "
+                f"tenant {self.server!r}."
+            ),
+        )
+
+    async def _fetch_segment_schema(
+        self,
+        query: SegmentSchemaQuery,
+        *,
+        parse_detail_datetimes: bool,
+        fmt: Literal["arrow", "json"],
+        query_engine: QueryEngine = "auto",
+    ) -> "pa.Schema | dict[str, Any]":
+        """Fetch the tenant's segment_details schema from /patrols/segments/schema.
+
+        There is one segment schema per tenant, so this has no "not found"
+        case: a site that never authored one yields an empty struct.
+        """
+        return await self._fetch_details_schema(
+            f"{self.warehouse_patrols_endpoint}/segments/schema",
+            query,
+            parse_detail_datetimes=parse_detail_datetimes,
+            fmt=fmt,
+            query_engine=query_engine,
+        )
 
     def _run_async(self, coro):
         """Run an async coroutine synchronously.
@@ -565,6 +782,8 @@ class ERWarehouseClient(BaseModel):
         sub_page_size: int | None = None,
         patrols_overlap_daterange: bool = True,
         query_engine: QueryEngine | None = None,
+        *,
+        include_pauses: bool = False,
     ) -> pa.Table:
         """Get minimal patrol data from EarthRanger Data Warehouse.
 
@@ -585,6 +804,12 @@ class ERWarehouseClient(BaseModel):
                 only patrols starting within that range.
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
+            include_pauses: If True, include patrol legs flagged as a pause
+                rather than active patrolling; if False (default), exclude
+                them, matching EarthRanger, so totals such as distance and
+                duration agree with what the product reports. The detail-mode
+                arguments the other patrol getters take are absent here: a
+                patrols-only response carries no detail columns to shape.
 
         Returns:
             PyArrow Table with minimal patrol data (metadata only, no segments
@@ -599,6 +824,7 @@ class ERWarehouseClient(BaseModel):
             patrol_status=status,
             patrols_overlap_daterange=patrols_overlap_daterange,
             include_events=False,
+            include_pauses=include_pauses,
         )
         return self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
 
@@ -611,6 +837,11 @@ class ERWarehouseClient(BaseModel):
         sub_page_size: int | None = None,
         patrols_overlap_daterange: bool = True,
         query_engine: QueryEngine | None = None,
+        *,
+        include_pauses: bool = False,
+        raw_details: bool = False,
+        parse_detail_datetimes: bool = False,
+        typed_type_details: bool = False,
     ) -> pa.Table:
         """Get patrols with their events from the EarthRanger Data Warehouse.
 
@@ -629,13 +860,43 @@ class ERWarehouseClient(BaseModel):
                 only patrols starting within that range.
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
+            include_pauses: If True, include patrol legs flagged as a pause
+                rather than active patrolling; if False (default), exclude
+                them, matching EarthRanger, so totals such as distance and
+                duration agree with what the product reports.
+            raw_details: Format override — serve ``segment_details`` and
+                ``type_details`` as flat JSON strings instead of typed structs.
+            parse_detail_datetimes: Typed-struct only — map detail date-time
+                and date fields to Arrow timestamp/date instead of strings.
+            typed_type_details: Assert that ``type_details`` must come back as
+                a typed struct. That is only possible for a query naming
+                exactly one patrol type, so this raises rather than letting the
+                warehouse quietly serve JSON text instead. ``segment_details``
+                needs no such assertion: no patrol-type cardinality demotes it.
+                Neither column is typed, though, when the tenant's schema
+                defines no fields -- the warehouse serves JSON text rather than
+                an empty struct, which would drop the column outright.
 
         Returns:
             PyArrow Table of patrols, one row per patrol, with a
             ``patrol_segments`` list column whose segments each carry a nested
             ``events`` list (WKB geometry).
-            Schema: PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.
+            Schema: PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 exactly under
+            ``raw_details=True``. By default the warehouse types the segments'
+            ``segment_details`` / ``type_details`` as structs shaped by the
+            tenant's schema documents, so those two fields differ from the
+            published schema while every other field matches.
+
+        Raises:
+            ValueError: If the requested details mode cannot be served — see
+                ``typed_type_details``.
         """
+        _validate_patrol_detail_mode(
+            patrol_type_value=patrol_type_value,
+            raw_details=raw_details,
+            parse_detail_datetimes=parse_detail_datetimes,
+            typed_type_details=typed_type_details,
+        )
         engine = query_engine or self.query_engine
         query = PatrolsQuery(
             tenant_domain=self.server,
@@ -645,8 +906,14 @@ class ERWarehouseClient(BaseModel):
             patrol_status=status,  # type: ignore[arg-type]
             patrols_overlap_daterange=patrols_overlap_daterange,
             include_events=True,
+            include_pauses=include_pauses,
+            raw_details=raw_details,
+            parse_detail_datetimes=parse_detail_datetimes,
         )
-        return self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
+        patrols = self._run_async(self._fetch_patrols_arrow(query, query_engine=engine))
+        if typed_type_details:
+            _assert_typed_type_details(patrols)
+        return patrols
 
     def get_patrol_events(
         self,
@@ -658,6 +925,12 @@ class ERWarehouseClient(BaseModel):
         drop_null_geometry: bool = False,
         sub_page_size: int | None = None,
         query_engine: QueryEngine | None = None,
+        patrols_overlap_daterange: bool = True,
+        *,
+        include_pauses: bool = False,
+        raw_details: bool = False,
+        parse_detail_datetimes: bool = False,
+        typed_type_details: bool = False,
     ) -> pa.Table:
         """Get patrol events as a flat ``pa.Table``, one row per event.
 
@@ -676,12 +949,38 @@ class ERWarehouseClient(BaseModel):
             status: List of patrol statuses to filter by (e.g., ["done"]).
             drop_null_geometry: If True, exclude events with no geometry.
             sub_page_size: Ignored (for interface compatibility).
+            patrols_overlap_daterange: If True (default), include patrols
+                whose time range overlaps [since, until]; if False, include
+                only patrols starting within that range.
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
+            include_pauses: If True, include patrol legs flagged as a pause
+                rather than active patrolling; if False (default), exclude
+                them, matching EarthRanger, so totals such as distance and
+                duration agree with what the product reports.
+            raw_details: Format override — serve ``segment_details`` and
+                ``type_details`` as flat JSON strings instead of typed structs.
+            parse_detail_datetimes: Typed-struct only — map detail date-time
+                and date fields to Arrow timestamp/date instead of strings.
+            typed_type_details: Assert that ``type_details`` must come back as
+                a typed struct. That is only possible for a query naming
+                exactly one patrol type, so this raises rather than letting the
+                warehouse quietly serve JSON text instead. ``segment_details``
+                needs no such assertion: no patrol-type cardinality demotes it.
+                Neither column is typed, though, when the tenant's schema
+                defines no fields -- the warehouse serves JSON text rather than
+                an empty struct, which would drop the column outright.
 
         Returns:
             PyArrow Table, one row per patrol event.
-            Schema: PATROL_EVENTS_FLAT_SCHEMA_V1.
+            Schema: PATROL_EVENTS_FLAT_SCHEMA_V1, except that a detail column
+            arriving as a typed struct is expanded into one ``segment__<key>``
+            / ``type__<key>`` column per field.
+
+        Raises:
+            ValueError: If the requested details mode cannot be served (see
+                ``typed_type_details``), or if a detail field's flattened name
+                would collide with a column already in the flat schema.
         """
         patrols = self.get_patrols(
             since=since,
@@ -690,11 +989,26 @@ class ERWarehouseClient(BaseModel):
             status=status,
             sub_page_size=sub_page_size,
             query_engine=query_engine,
+            patrols_overlap_daterange=patrols_overlap_daterange,
+            include_pauses=include_pauses,
+            raw_details=raw_details,
+            parse_detail_datetimes=parse_detail_datetimes,
+            typed_type_details=typed_type_details,
+        )
+        detail_types = _segment_detail_types(patrols)
+        schema = patrol_events_flat_schema(
+            segment_details_type=detail_types["segment_details"],
+            type_details_type=detail_types["type_details"],
         )
         wanted_types = set(event_type or [])
-        rows: list[dict] = []
+        rows: list[dict[str, Any]] = []
         for patrol in patrols.to_pylist():
             for segment in patrol.get("patrol_segments") or []:
+                # The segment's capture fields, carried as event context.
+                # ``.get`` rather than indexing: a server that predates these
+                # columns simply yields nulls, which is also what a tenant
+                # without the patrol_schemas preview feature yields.
+                details = _flatten_segment_details(segment, detail_types)
                 for event in segment.get("events") or []:
                     if wanted_types and event.get("event_type") not in wanted_types:
                         continue
@@ -708,20 +1022,14 @@ class ERWarehouseClient(BaseModel):
                             "patrol_segment_id": segment.get("id"),
                             "patrol_type": segment.get("patrol_type"),
                             "patrol_start_time": segment.get("time_range_start"),
-                            # The segment's capture fields, carried as event
-                            # context. ``.get`` rather than indexing: a server
-                            # that predates these columns simply yields nulls,
-                            # which is also what a tenant without the
-                            # patrol_schemas preview feature yields.
-                            "segment_details": segment.get("segment_details"),
-                            "type_details": segment.get("type_details"),
+                            **details,
                             "team": segment.get("team"),
                             "members": segment.get("members"),
                             "assets": segment.get("assets"),
                             "is_pause": segment.get("is_pause"),
                         }
                     )
-        return pa.Table.from_pylist(rows, schema=PATROL_EVENTS_FLAT_SCHEMA_V1)
+        return pa.Table.from_pylist(rows, schema=schema)
 
     def get_patrol_observations(
         self,
@@ -973,6 +1281,156 @@ class ERWarehouseClient(BaseModel):
         query = EventTypeSchemaQuery(tenant_domain=self.server, event_type=event_type)
         return self._run_async(
             self._fetch_event_schema(
+                query,
+                parse_detail_datetimes=parse_detail_datetimes,
+                fmt=format,
+                query_engine=engine,
+            )
+        )
+
+    # -------------------------------------------------------------------------
+    # Patrol type and segment schema discovery
+    # -------------------------------------------------------------------------
+
+    def get_patrol_types(self, query_engine: QueryEngine | None = None) -> pa.Table:
+        """Get patrol types from the EarthRanger Data Warehouse.
+
+        The patrol counterpart of ``get_event_types``: the returned table
+        provides the ``value`` -> ``display`` mapping used to resolve patrol
+        type display names.
+
+        Args:
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            PyArrow Table with patrol types. Schema: PATROL_TYPES_SCHEMA_V1
+            (id, value, display, ordernum, is_active).
+        """
+        engine = query_engine or self.query_engine
+        query = PatrolTypesQuery(tenant_domain=self.server)
+        return self._run_async(
+            self._fetch_patrol_types_arrow(query, query_engine=engine)
+        )
+
+    @overload
+    def get_patrol_schema(
+        self,
+        patrol_type: str,
+        *,
+        parse_detail_datetimes: bool = ...,
+        format: Literal["arrow"] = ...,
+        query_engine: QueryEngine | None = ...,
+    ) -> pa.Schema: ...
+
+    @overload
+    def get_patrol_schema(
+        self,
+        patrol_type: str,
+        *,
+        parse_detail_datetimes: bool = ...,
+        format: Literal["json"],
+        query_engine: QueryEngine | None = ...,
+    ) -> dict[str, Any]: ...
+
+    def get_patrol_schema(
+        self,
+        patrol_type: str,
+        *,
+        parse_detail_datetimes: bool = False,
+        format: Literal["arrow", "json"] = "arrow",
+        query_engine: QueryEngine | None = None,
+    ) -> "pa.Schema | dict[str, Any]":
+        """Discover the typed ``type_details`` schema for one patrol type.
+
+        Reads the warehouse ``/patrols/schema`` discovery endpoint, the patrol
+        counterpart of ``/events/schema``, which serves exactly one patrol type
+        because ``type_details`` is derived from that type's JSON-Schema. The
+        same struct is embedded in patrol responses in typed mode, so this call
+        is not required to consume patrols.
+
+        Args:
+            patrol_type: The single patrol type ``value`` (slug) or UUID.
+            parse_detail_datetimes: If True, return the datetime-typed variant
+                (JSON-Schema ``date-time`` -> ``timestamp(ns, UTC)``, ``date``
+                -> ``date32``), matching what patrol responses emit for the
+                same flag.
+            format: ``"arrow"`` (default) returns a ``pa.Schema`` whose
+                ``type_details`` field is the derived struct; ``"json"``
+                returns an informational ``{field: type_str}`` mapping.
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            A ``pa.Schema`` (format="arrow") or a ``dict[str, Any]``
+            (format="json"). A known patrol type with no detail schema yields
+            an empty struct.
+
+        Raises:
+            ValueError: If the patrol type is unknown for this tenant.
+        """
+        engine = query_engine or self.query_engine
+        query = PatrolTypeSchemaQuery(
+            tenant_domain=self.server, patrol_type_value=patrol_type
+        )
+        return self._run_async(
+            self._fetch_patrol_schema(
+                query,
+                parse_detail_datetimes=parse_detail_datetimes,
+                fmt=format,
+                query_engine=engine,
+            )
+        )
+
+    @overload
+    def get_segment_schema(
+        self,
+        *,
+        parse_detail_datetimes: bool = ...,
+        format: Literal["arrow"] = ...,
+        query_engine: QueryEngine | None = ...,
+    ) -> pa.Schema: ...
+
+    @overload
+    def get_segment_schema(
+        self,
+        *,
+        parse_detail_datetimes: bool = ...,
+        format: Literal["json"],
+        query_engine: QueryEngine | None = ...,
+    ) -> dict[str, Any]: ...
+
+    def get_segment_schema(
+        self,
+        *,
+        parse_detail_datetimes: bool = False,
+        format: Literal["arrow", "json"] = "arrow",
+        query_engine: QueryEngine | None = None,
+    ) -> "pa.Schema | dict[str, Any]":
+        """Discover the typed ``segment_details`` schema for this site.
+
+        Takes no key: there is exactly one segment ("leg") schema per tenant,
+        and it shapes every leg. That is also why ``segment_details`` is served
+        as a typed struct however many patrol types a query spans.
+
+        Args:
+            parse_detail_datetimes: If True, return the datetime-typed variant,
+                matching what patrol responses emit for the same flag.
+            format: ``"arrow"`` (default) returns a ``pa.Schema`` whose
+                ``segment_details`` field is the derived struct; ``"json"``
+                returns an informational ``{field: type_str}`` mapping.
+            query_engine: Backend engine to use. Defaults to the client-level
+                setting (``self.query_engine``).
+
+        Returns:
+            A ``pa.Schema`` (format="arrow") or a ``dict[str, Any]``
+            (format="json"). A site that never authored a segment schema yields
+            an empty struct rather than an error.
+        """
+        engine = query_engine or self.query_engine
+        query = SegmentSchemaQuery(tenant_domain=self.server)
+        return self._run_async(
+            self._fetch_segment_schema(
                 query,
                 parse_detail_datetimes=parse_detail_datetimes,
                 fmt=format,

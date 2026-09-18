@@ -1,3 +1,4 @@
+import inspect
 import io
 import json
 from contextlib import asynccontextmanager, contextmanager
@@ -11,7 +12,7 @@ from pydantic import SecretStr
 
 import pyarrow as pa
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from httpx import AsyncClient, ASGITransport
 
 from ecoscope_earthranger_io_core.arrow import (
@@ -359,7 +360,12 @@ def test_client_get_patrols_minimal(app: FastAPI) -> None:
 
 def test_client_get_patrols_with_events(app: FastAPI) -> None:
     """get_patrols returns a pa.Table of patrols with events nested under each
-    patrol segment (PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1)."""
+    patrol segment.
+
+    The warehouse types the detail columns unless raw_details is set, so a
+    default call matches PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 everywhere except
+    those two fields; raw mode matches it exactly (asserted below).
+    """
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -388,9 +394,16 @@ def test_client_get_patrols_with_events(app: FastAPI) -> None:
         )
 
     assert isinstance(table, pa.Table)
-    assert table.schema == PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1
     assert table.num_rows > 0
     assert "patrol_segments" in table.column_names
+    segment_type = table.schema.field("patrol_segments").type.value_type
+    assert pa.types.is_struct(segment_type.field("segment_details").type)
+    assert [f.name for f in segment_type] == [
+        f.name
+        for f in PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.field(
+            "patrol_segments"
+        ).type.value_type
+    ]
 
     segments = table.column("patrol_segments").to_pylist()[0]
     assert isinstance(segments, list)
@@ -650,7 +663,6 @@ def test_client_query_engine_per_request_overrides_client_default(
 def test_client_get_patrol_events(app: FastAPI) -> None:
     """get_patrol_events flattens get_patrols' nested events to a flat pa.Table,
     one row per event, with patrol/segment context attached."""
-    from ecoscope_earthranger_io_core.arrow import PATROL_EVENTS_FLAT_SCHEMA_V1
 
     @asynccontextmanager
     async def _mock_httpx_client(self):
@@ -672,7 +684,6 @@ def test_client_get_patrol_events(app: FastAPI) -> None:
         )
 
     assert isinstance(table, pa.Table)
-    assert table.schema.equals(PATROL_EVENTS_FLAT_SCHEMA_V1)
     # the canned example app has one patrol -> one segment -> one event
     assert table.num_rows == 1
     row = table.to_pylist()[0]
@@ -1758,3 +1769,387 @@ def test_empty_patrols_df_sends_no_patrol_ids(app: FastAPI) -> None:
         )
 
     assert "patrol_ids" not in captured["body"]
+
+
+# -------------------------------------------------------------------------
+# Patrol type / segment schema discovery
+# -------------------------------------------------------------------------
+
+
+def test_client_get_patrol_types(app: FastAPI) -> None:
+    """get_patrol_types returns the value -> display mapping table."""
+    from ecoscope_earthranger_io_core.arrow import PATROL_TYPES_SCHEMA_V1
+
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        table = _client().get_patrol_types()
+
+    assert isinstance(table, pa.Table)
+    assert table.schema.equals(PATROL_TYPES_SCHEMA_V1)
+    assert dict(
+        zip(table.column("value").to_pylist(), table.column("display").to_pylist())
+    ) == {"routine_patrol": "Routine Patrol", "aerial_patrol": "Aerial Patrol"}
+
+
+def test_client_get_patrol_schema_arrow(app: FastAPI) -> None:
+    """format="arrow" reads a bare Arrow schema message, not an IPC stream."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        schema = _client().get_patrol_schema("routine_patrol")
+
+    assert isinstance(schema, pa.Schema)
+    details = schema.field("type_details").type
+    assert pa.types.is_struct(details)
+    assert [f.name for f in details] == ["vehicle", "departed_at"]
+    assert details.field("departed_at").type == pa.string()
+
+
+def test_client_get_patrol_schema_parse_detail_datetimes(app: FastAPI) -> None:
+    """The datetime opt-in types date-time leaves as timestamps."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        schema = _client().get_patrol_schema(
+            "routine_patrol", parse_detail_datetimes=True
+        )
+
+    details = schema.field("type_details").type
+    assert details.field("departed_at").type == pa.timestamp("ns", tz="UTC")
+
+
+def test_client_get_patrol_schema_json(app: FastAPI) -> None:
+    """format="json" returns the informational {field: type_str} mapping."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        mapping = _client().get_patrol_schema("routine_patrol", format="json")
+
+    assert mapping == {"vehicle": "string", "departed_at": "string"}
+
+
+def test_client_get_patrol_schema_unknown_type_raises_value_error(
+    app: FastAPI,
+) -> None:
+    """An unknown patrol type surfaces the API's 404 detail, not a bare status."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        with pytest.raises(ValueError, match="no_such_type"):
+            _client().get_patrol_schema("no_such_type")
+
+
+def test_client_get_segment_schema(app: FastAPI) -> None:
+    """get_segment_schema takes no key: there is one per tenant."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        schema = _client().get_segment_schema()
+        mapping = _client().get_segment_schema(format="json")
+
+    details = schema.field("segment_details").type
+    assert [f.name for f in details] == ["weather", "briefed_at"]
+    assert mapping == {"weather": "string", "briefed_at": "string"}
+
+
+# -------------------------------------------------------------------------
+# Typed details on the patrol getters
+# -------------------------------------------------------------------------
+
+
+def test_patrol_detail_args_reach_the_query(app: FastAPI) -> None:
+    """include_pauses / raw_details / parse_detail_datetimes reach PatrolsQuery."""
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _client().get_patrols(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            include_pauses=True,
+            raw_details=True,
+        )
+
+    body = captured["body"]
+    assert body["include_pauses"] is True
+    assert body["raw_details"] is True
+    assert body["parse_detail_datetimes"] is False
+
+
+def test_patrols_minimal_takes_include_pauses_only(app: FastAPI) -> None:
+    """A patrols-only response carries no detail columns to shape.
+
+    include_pauses is a store-level predicate and still applies; the three
+    detail arguments would be inert, so get_patrols_minimal does not take them.
+    """
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _client().get_patrols_minimal(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            include_pauses=True,
+        )
+
+    assert captured["body"]["include_pauses"] is True
+
+    takes = inspect.signature(ERWarehouseClient.get_patrols_minimal).parameters
+    assert "include_pauses" in takes
+    assert not {"raw_details", "parse_detail_datetimes", "typed_type_details"} & set(
+        takes
+    )
+
+
+def test_patrol_getters_default_to_todays_behaviour(app: FastAPI) -> None:
+    """A caller passing none of the new arguments sends the old defaults."""
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _client().get_patrols(since="2015-01-01T12:00:00", until="2015-03-01T12:00:00")
+
+    body = captured["body"]
+    assert body["include_pauses"] is False
+    assert body["raw_details"] is False
+    assert body["parse_detail_datetimes"] is False
+
+
+def test_typed_type_details_requires_exactly_one_patrol_type() -> None:
+    """The one-type rule is validated client-side, naming the way out."""
+    for patrol_type_value in (None, [], ["a", "b"]):
+        with pytest.raises(ValueError, match="exactly one patrol_type_value"):
+            _client().get_patrols(
+                patrol_type_value=patrol_type_value, typed_type_details=True
+            )
+
+
+def test_typed_type_details_accepts_one_patrol_type(app: FastAPI) -> None:
+    """Exactly one patrol type passes validation and reaches the request."""
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _client().get_patrols(
+            patrol_type_value=["routine_patrol"],
+            typed_type_details=True,
+            parse_detail_datetimes=True,
+        )
+
+    assert captured["body"]["patrol_type_value"] == ["routine_patrol"]
+
+
+def test_typed_segment_details_is_not_gated_on_patrol_type_count(
+    app: FastAPI,
+) -> None:
+    """segment_details stays typed across several patrol types.
+
+    The one-type rule belongs to type_details alone; applying it here would
+    make the common multi-type query untypeable for no reason.
+    """
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        table = _client().get_patrol_events(
+            patrol_type_value=["routine_patrol", "aerial_patrol"],
+            parse_detail_datetimes=True,
+        )
+
+    assert "segment__weather" in table.column_names
+    assert table.schema.field("segment__briefed_at").type == pa.timestamp(
+        "ns", tz="UTC"
+    )
+    # Several types, so type_details is served as JSON text rather than refused.
+    assert "type_details" in table.column_names
+    assert table.column("type_details").to_pylist() == ['{"vehicle": "landcruiser"}']
+
+
+def test_raw_details_cannot_be_combined_with_parse_detail_datetimes() -> None:
+    """The one combination the warehouse rejects is caught before the request."""
+    with pytest.raises(ValueError, match="parse_detail_datetimes"):
+        _client().get_patrols(raw_details=True, parse_detail_datetimes=True)
+
+
+def test_typed_type_details_cannot_be_combined_with_raw_details() -> None:
+    """Asking for a typed struct while opting out of typing is a contradiction."""
+    with pytest.raises(ValueError, match="raw_details"):
+        _client().get_patrols(
+            patrol_type_value=["routine_patrol"],
+            typed_type_details=True,
+            raw_details=True,
+        )
+
+
+def test_patrol_events_flattens_details_with_prefixes(app: FastAPI) -> None:
+    """Typed detail fields flatten to segment__<key> / type__<key> columns."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        table = _client().get_patrol_events(
+            patrol_type_value=["routine_patrol"],
+            parse_detail_datetimes=True,
+            typed_type_details=True,
+        )
+
+    assert {"segment__weather", "segment__briefed_at", "type__vehicle"} <= set(
+        table.column_names
+    )
+    # The string columns they replace are gone, not carried alongside.
+    assert "segment_details" not in table.column_names
+    assert "type_details" not in table.column_names
+    row = table.to_pylist()[0]
+    assert row["segment__weather"] == "clear"
+    assert row["type__vehicle"] == "landcruiser"
+    # Event and patrol context survive the expansion unchanged.
+    assert row["event_type"] == "wildlife_sighting"
+    assert row["patrol_id"] == "patrol1"
+
+
+def test_patrol_events_raw_mode_matches_the_published_flat_schema(
+    app: FastAPI,
+) -> None:
+    """raw_details is the stable shape: exactly PATROL_EVENTS_FLAT_SCHEMA_V1.
+
+    Typed mode expands details into per-field columns, so its column set
+    follows the tenant's schema documents. Raw mode does not.
+    """
+    from ecoscope_earthranger_io_core.arrow import PATROL_EVENTS_FLAT_SCHEMA_V1
+
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        table = _client().get_patrol_events(raw_details=True)
+
+    assert table.schema.equals(PATROL_EVENTS_FLAT_SCHEMA_V1)
+    assert table.to_pylist()[0]["segment_details"] == '{"weather": "clear"}'
+
+
+def test_patrol_events_falls_back_to_json_text_without_a_schema(
+    app: FastAPI,
+) -> None:
+    """A tenant that authored no schemas keeps the published flat schema.
+
+    The API declines to type an empty struct, because doing so would drop the
+    column; the client must follow rather than expand it away.
+    """
+    from ecoscope_earthranger_io_core.arrow import PATROL_EVENTS_FLAT_SCHEMA_V1
+
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        table = ERWarehouseClient(
+            server="no-schemas.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        ).get_patrol_events()
+
+    assert table.schema.equals(PATROL_EVENTS_FLAT_SCHEMA_V1)
+
+
+def test_typed_type_details_rejects_an_untyped_response(app: FastAPI) -> None:
+    """Naming one patrol type is necessary but not sufficient.
+
+    A known type whose schema defines no fields is served as JSON text, so the
+    flag has to check what came back, not just what was asked for.
+    """
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        with pytest.raises(ValueError, match="served"):
+            ERWarehouseClient(
+                server="no-schemas.pamdas.org",
+                token="abc",
+                warehouse_base_url="http://test",
+            ).get_patrols(patrol_type_value=["routine_patrol"], typed_type_details=True)
+
+
+def test_client_get_segment_schema_parse_detail_datetimes(app: FastAPI) -> None:
+    """The datetime opt-in reaches the segment schema endpoint too."""
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        schema = _client().get_segment_schema(parse_detail_datetimes=True)
+
+    details = schema.field("segment_details").type
+    assert details.field("briefed_at").type == pa.timestamp("ns", tz="UTC")
+
+
+def test_patrol_types_threads_the_query_engine(app: FastAPI) -> None:
+    """query_engine reaches the listing request as store_type."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _mock_httpx_client(self):
+        async with AsyncClient(
+            transport=ASGITransport(app), base_url="http://test"
+        ) as client:
+            original = client.stream
+
+            def _stream(method, url, **kwargs):
+                captured["params"] = kwargs.get("params")
+                return original(method, url, **kwargs)
+
+            client.stream = _stream  # type: ignore[assignment]
+            yield client
+
+    with patch.object(ERWarehouseClient, "_httpx_client", _mock_httpx_client):
+        _client().get_patrol_types(query_engine="iceberg-dd")
+
+    assert captured["params"]["store_type"] == "iceberg-dd"
+
+
+def test_patrol_schema_404_without_a_json_body_still_names_the_type() -> None:
+    """A 404 whose body is not JSON falls back to the client's own message."""
+    app = FastAPI()
+
+    @app.get("/patrols/schema")
+    async def _schema():
+        return Response(content="upstream down", status_code=404)
+
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        with pytest.raises(ValueError, match="routine_patrol"):
+            _client().get_patrol_schema("routine_patrol")
+
+
+def test_typed_type_details_rejects_a_typed_segment_but_untyped_type(
+    app: FastAPI,
+) -> None:
+    """The post-check must read type_details, not segment_details.
+
+    A tenant whose site-wide segment schema has fields but whose patrol types'
+    schemas do not is the case that separates them: segment_details comes back
+    typed while type_details is JSON text, so a check that looked at the wrong
+    column would wrongly pass.
+    """
+    client = ERWarehouseClient(
+        server="no-type-schema.pamdas.org",
+        token="abc",
+        warehouse_base_url="http://test",
+    )
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        # segment_details is typed here, so the flattening still expands it.
+        table = client.get_patrol_events(patrol_type_value=["routine_patrol"])
+        assert "segment__weather" in table.column_names
+        assert "type_details" in table.column_names
+
+        with pytest.raises(ValueError, match="type_details"):
+            client.get_patrols(
+                patrol_type_value=["routine_patrol"], typed_type_details=True
+            )
+
+
+def test_get_patrols_raw_mode_matches_the_published_nested_schema(
+    app: FastAPI,
+) -> None:
+    """raw_details is the stable nested shape: PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1.
+
+    The default is typed, so only raw mode can be pinned to the published
+    schema — without this, drift in the raw path would go unnoticed.
+    """
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        table = _client().get_patrols(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            raw_details=True,
+        )
+
+    assert table.schema.equals(PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1)

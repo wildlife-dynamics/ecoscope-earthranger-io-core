@@ -321,7 +321,11 @@ PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 = pa.schema(
     ]
 )
 
-# Flat one-row-per-event schema produced by the client by flattening the nested
+# Flat one-row-per-event schema produced by the client by flattening the nested.
+# Exact only when details are served as JSON text (``raw_details=True``); in
+# typed mode each detail struct's fields replace it as ``segment__`` /
+# ``type__`` columns, so the column set follows the tenant's schema documents.
+# The rest of the schema is unaffected either way.
 # PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1 (events extracted from each segment, with
 # their patrol/segment context attached). The event fields mirror
 # PATROL_EVENT_STRUCT_V1, except ``geometry`` is the geoarrow WKB extension here
@@ -515,3 +519,80 @@ TRANSFORMS: dict[SchemaChoices, TransformSpec] = {
         persisted_schema=PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1,
     ),
 }
+
+
+# The prefix each detail column's fields take when a typed struct is flattened
+# to top-level columns. Fixed by the das contract. The warehouse API flattens
+# the same columns for its CSV/JSON renderings and currently declares its own
+# copy of this mapping (app/routers/patrols.py); the two must stay in step
+# until it imports this one.
+DETAIL_FLATTEN_PREFIXES = {
+    "segment_details": "segment__",
+    "type_details": "type__",
+}
+
+
+def detail_expands_to_columns(details_type: pa.DataType | None) -> bool:
+    """Whether a detail column arrived typed and carries fields to expand.
+
+    An empty struct is deliberately not expanded: it would discard the column
+    without replacing it, making the flat column set a function of tenant
+    configuration. The API declines to type an empty struct for the same
+    reason, so this is a guard against a server that ever stops doing so.
+    """
+    return (
+        details_type is not None
+        and pa.types.is_struct(details_type)
+        and len(details_type) > 0
+    )
+
+
+def patrol_events_flat_schema(
+    *,
+    segment_details_type: pa.DataType | None = None,
+    type_details_type: pa.DataType | None = None,
+) -> pa.Schema:
+    """Build the flat patrol-events schema for a given pair of detail types.
+
+    ``segment_details`` and ``type_details`` arrive either as JSON text or, in
+    typed mode, as structs shaped by the tenant's schema documents. A struct
+    cannot be carried under its original name without the flattened row losing
+    the per-field typing that made it worth asking for, so each of its fields
+    becomes a top-level column prefixed ``segment__`` / ``type__`` -- the
+    prefix convention fixed by the das contract.
+
+    Passing string (or nothing) for both yields PATROL_EVENTS_FLAT_SCHEMA_V1
+    unchanged.
+
+    Raises:
+        ValueError: If expanding a detail field would collide with a column
+            already in the schema. das permits arbitrary property names, and
+            Arrow permits duplicate field names, so an unguarded collision
+            would bind values to the wrong column rather than fail.
+    """
+    expansions = {
+        "segment_details": segment_details_type,
+        "type_details": type_details_type,
+    }
+    fields: list[pa.Field] = []
+    taken = {
+        field.name
+        for field in PATROL_EVENTS_FLAT_SCHEMA_V1
+        if not detail_expands_to_columns(expansions.get(field.name))
+    }
+    for field in PATROL_EVENTS_FLAT_SCHEMA_V1:
+        details_type = expansions.get(field.name)
+        if not detail_expands_to_columns(details_type):
+            fields.append(field)
+            continue
+        prefix = DETAIL_FLATTEN_PREFIXES[field.name]
+        for child in details_type:  # type: ignore[union-attr]
+            name = f"{prefix}{child.name}"
+            if name in taken:
+                raise ValueError(
+                    f"Flattening {field.name!r} field {child.name!r} would "
+                    f"collide with the existing column {name!r}."
+                )
+            taken.add(name)
+            fields.append(pa.field(name, child.type))
+    return pa.schema(fields)
