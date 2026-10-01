@@ -19,7 +19,9 @@ dependencies = [
     "pydantic >=2.0.0,<3",
     "pyarrow >=20.0.0,<24",
     "geoarrow-pyarrow >=0.2.0,<0.3",
-    "google-auth >=2.0.0,<3",
+    # geoarrow-pyarrow 0.2.x needs geoarrow.c.lib.CVectorType, removed in geoarrow-c 0.4
+    "geoarrow-c >=0.3.0,<0.4",
+    "google-auth[requests] >=2.0.0,<3",
     # note that pip distributions deliberately exclude
     # geopandas and pandera, as they are not necessary
     # and geopandas in particular is a heavy dependency
@@ -38,7 +40,9 @@ python = ">=3.10,<3.13"
 pydantic = ">=2.0.0,<3"
 pyarrow = ">=20.0.0,<24"
 geoarrow-pyarrow = ">=0.2.0,<0.3"
+geoarrow-c = ">=0.3.0,<0.4"
 google-auth = ">=2.0.0,<3"
+requests = ">=2.0.0,<3"
 geopandas = ">=1.1.0,<2"
 pandera = ">=0.24.0,<0.32"
 

@@ -62,6 +62,18 @@ def _mock_id_token():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _no_authorization_token():
+    """Keep these tests off the ER authz endpoint; its behaviour is covered in
+    test_authorization_token.py."""
+    with patch.object(
+        ERWarehouseClient,
+        "_get_authorization_token",
+        AsyncMock(return_value=None),
+    ):
+        yield
+
+
 @pytest.mark.asyncio
 async def test__get_table(app: FastAPI, nrecords: int) -> None:
     query = ObservationsQuery(
@@ -1247,20 +1259,22 @@ async def test_resolve_warehouse_url_override_skips_status() -> None:
     mock_client_cls.assert_not_called()
 
 
-def test_get_auth_headers_includes_both_tokens() -> None:
+@pytest.mark.asyncio
+async def test_get_auth_headers_includes_both_tokens() -> None:
     """Test that auth headers include both ER token and Google ID token."""
     er_client = ERWarehouseClient(
         server="some-site.pamdas.org",
         token="abc",
         warehouse_base_url="https://warehouse.example.com",
     )
-    headers = er_client._get_auth_headers()
+    headers = await er_client._get_auth_headers()
 
     assert headers["X-EarthRanger-API-Token"] == "abc"
     assert headers["Authorization"] == "Bearer mock-id-token"
 
 
-def test_get_auth_headers_raises_on_invalid_warehouse_url() -> None:
+@pytest.mark.asyncio
+async def test_get_auth_headers_raises_on_invalid_warehouse_url() -> None:
     """Test that _get_auth_headers raises ValueError when hostname cannot be extracted."""
     er_client = ERWarehouseClient(
         server="some-site.pamdas.org",
@@ -1268,7 +1282,7 @@ def test_get_auth_headers_raises_on_invalid_warehouse_url() -> None:
         warehouse_base_url="not-a-url",
     )
     with pytest.raises(ValueError, match="Could not extract a valid hostname"):
-        er_client._get_auth_headers()
+        await er_client._get_auth_headers()
 
 
 def test_warehouse_base_url_is_optional() -> None:

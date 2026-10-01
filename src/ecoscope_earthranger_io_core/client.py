@@ -2,11 +2,15 @@ import asyncio
 import base64
 import io
 import json
+import logging
+import math
 import time
+import weakref
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import cached_property
-from typing import Any, Literal, overload
+from typing import Any, Literal, TypeVar, overload
 from urllib.parse import urlparse
 
 import httpx
@@ -29,6 +33,77 @@ from ecoscope_earthranger_io_core.query import (
     QueryEngine,
     SegmentSchemaQuery,
 )
+
+logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+AUTHORIZATION_TOKEN_HEADER = "X-EarthRanger-Authorization"
+_AUTHZ_REFRESH_MARGIN_S = 60.0
+_AUTHZ_DEFAULT_TTL_S = 30.0
+_AUTHZ_UNSUPPORTED_RETRY_S = 300.0
+
+
+class AuthorizationTokenError(RuntimeError):
+    """EarthRanger refused, or failed, to issue an authorization token."""
+
+
+def _jwt_claims(raw_token: str) -> Any:
+    """Decode the payload of a JWT without verifying it."""
+    payload = raw_token.split(".")[1]
+    padding = 4 - len(payload) % 4
+    if padding != 4:
+        payload += "=" * padding
+    return json.loads(base64.urlsafe_b64decode(payload))
+
+
+def _jwt_exp(raw_token: str) -> float | None:
+    """Return the ``exp`` claim of a JWT, or None when missing or unreadable."""
+    try:
+        return float(_jwt_claims(raw_token)["exp"])
+    except (IndexError, KeyError, ValueError, TypeError):
+        return None
+
+
+def _parse_expires_at(value: Any) -> float | None:
+    """Parse an ISO 8601 ``expires_at`` into a POSIX timestamp, or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        # fromisoformat only accepts a trailing "Z" from Python 3.11.
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+class _LoopLocks:
+    """One asyncio.Lock per event loop.
+
+    Each sync client call runs in its own loop, and an asyncio.Lock bound to one
+    loop raises when awaited from another. Deep copies and unpickled instances
+    start empty because locks and weak references cannot be pickled.
+    """
+
+    def __init__(self) -> None:
+        self._locks: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, asyncio.Lock
+        ] = weakref.WeakKeyDictionary()
+
+    def get(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        lock = self._locks.get(loop)
+        if lock is None:
+            lock = self._locks[loop] = asyncio.Lock()
+        return lock
+
+    def __reduce__(self) -> tuple[type["_LoopLocks"], tuple[()]]:
+        return (_LoopLocks, ())
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "_LoopLocks":
+        return _LoopLocks()
 
 
 def _http_detail(response: httpx.Response) -> str | None:
@@ -285,6 +360,19 @@ class ERWarehouseClient(BaseModel):
     authenticated with both the EarthRanger API token and a Google Cloud ID token
     obtained via Application Default Credentials.
 
+    When ``use_authorization_token`` is true (the default), the client also
+    gets a signed authorization token from EarthRanger
+    (``GET https://{server}/api/v1.0/authz/token?aud={authorization_audience}``)
+    and sends it in the ``X-EarthRanger-Authorization`` header. The token is
+    cached until 60 seconds before it expires. If the warehouse rejects it with
+    401, the client gets a new token and retries the request once. If
+    EarthRanger answers 404 (feature not available), the client logs a warning
+    and uses only the API token and ID token for the lifetime of the instance.
+    On 503 (signing not configured) it does the same for 5 minutes and then
+    asks for a token again. Any other failure to get the token raises
+    ``AuthorizationTokenError``. Set ``use_authorization_token=False`` to
+    never request it.
+
     Example:
         >>> from pydantic import SecretStr
         >>> client = ERWarehouseClient(
@@ -318,10 +406,16 @@ class ERWarehouseClient(BaseModel):
     warehouse_event_types_endpoint: str = "/event_types"
     warehouse_patrol_types_endpoint: str = "/patrol_types"
     query_engine: QueryEngine = "auto"
+    use_authorization_token: bool = True
+    authorization_audience: str = "urn:earthranger:dwh"
 
     _resolved_base_url: str | None = PrivateAttr(default=None)
     _cached_id_token: SecretStr | None = PrivateAttr(default=None)
     _id_token_expiry: float = PrivateAttr(default=0.0)
+    _cached_authz_token: SecretStr | None = PrivateAttr(default=None)
+    _authz_token_refresh_at: float = PrivateAttr(default=0.0)
+    _authz_unsupported_until: float = PrivateAttr(default=0.0)
+    _authz_locks: _LoopLocks = PrivateAttr(default_factory=_LoopLocks)
 
     @field_validator("server", mode="before")
     @classmethod
@@ -431,13 +525,7 @@ class ERWarehouseClient(BaseModel):
         from google.oauth2 import id_token  # type: ignore[import-untyped]
 
         raw_token: str = id_token.fetch_id_token(Request(), audience)
-
-        payload = raw_token.split(".")[1]
-        padding = 4 - len(payload) % 4
-        if padding != 4:
-            payload += "=" * padding
-        claims = json.loads(base64.urlsafe_b64decode(payload))
-        self._id_token_expiry = float(claims.get("exp", 0))
+        self._id_token_expiry = float(_jwt_claims(raw_token).get("exp", 0))
 
         self._cached_id_token = SecretStr(raw_token)
         return self._cached_id_token
@@ -448,11 +536,179 @@ class ERWarehouseClient(BaseModel):
         async with httpx.AsyncClient(base_url=base_url) as client:
             yield client
 
-    def _get_auth_headers(self) -> dict[str, str]:
+    def __getstate__(self) -> dict[Any, Any]:
+        state = super().__getstate__()
+        # A pickled client may be loaded much later; it gets a fresh short-lived
+        # token instead of carrying a credential around.
+        private = dict(state["__pydantic_private__"] or {})
+        private["_cached_authz_token"] = None
+        private["_authz_token_refresh_at"] = 0.0
+        state["__pydantic_private__"] = private
+        return state
+
+    def _authz_disabled(self) -> bool:
+        return time.time() < self._authz_unsupported_until
+
+    def _authz_token_is_fresh(self) -> bool:
+        return (
+            self._cached_authz_token is not None
+            and time.time() < self._authz_token_refresh_at
+        )
+
+    async def _get_authorization_token(self) -> SecretStr | None:
+        """Return the cached EarthRanger authorization token, fetching it if needed.
+
+        Returns None when the token is disabled or the EarthRanger site does
+        not issue it, so the caller sends only the legacy headers.
+
+        Raises:
+            AuthorizationTokenError: If EarthRanger rejects the request or
+                cannot be reached.
+        """
+        if not self.use_authorization_token or self._authz_disabled():
+            return None
+        if self._authz_token_is_fresh():
+            return self._cached_authz_token
+        async with self._authz_locks.get():
+            # Requests that waited on the lock reuse the token the first one got.
+            if self._authz_disabled():
+                return None
+            if self._authz_token_is_fresh():
+                return self._cached_authz_token
+            return await self._fetch_authorization_token()
+
+    async def _fetch_authorization_token(self) -> SecretStr | None:
+        url = f"https://{self.server}/api/v1.0/authz/token"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    params={"aud": self.authorization_audience},
+                    headers={
+                        "Authorization": f"Bearer {self._token.get_secret_value()}"
+                    },
+                    timeout=30.0,
+                )
+        except httpx.HTTPError as exc:
+            raise AuthorizationTokenError(
+                f"Could not get an authorization token from {url}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        if response.status_code == 404:
+            self._authz_unsupported_until = math.inf
+            logger.warning(
+                "EarthRanger site %s does not issue authorization tokens "
+                "(HTTP 404 from %s); using only the API token for the warehouse.",
+                self.server,
+                url,
+            )
+            return None
+        if response.status_code == 503:
+            # Signing can be configured later, so probe again after a while.
+            self._authz_unsupported_until = time.time() + _AUTHZ_UNSUPPORTED_RETRY_S
+            logger.warning(
+                "EarthRanger site %s cannot issue authorization tokens now "
+                "(HTTP 503 from %s); using only the API token for the warehouse "
+                "for the next %d seconds.",
+                self.server,
+                url,
+                _AUTHZ_UNSUPPORTED_RETRY_S,
+            )
+            return None
+        if not response.is_success:
+            detail = _http_detail(response)
+            raise AuthorizationTokenError(
+                "EarthRanger refused to issue an authorization token for "
+                f"audience {self.authorization_audience!r} "
+                f"(HTTP {response.status_code} from {url})"
+                + (f": {detail}" if detail else "")
+            )
+
+        try:
+            payload = response.json()
+            raw_token = payload["token"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise AuthorizationTokenError(
+                f"Authorization token response from {url} has no 'token' field."
+            ) from exc
+        if not isinstance(raw_token, str) or not raw_token:
+            raise AuthorizationTokenError(
+                f"Authorization token response from {url} has an empty 'token'."
+            )
+
+        token = SecretStr(raw_token)
+        expiry = _parse_expires_at(payload.get("expires_at"))
+        if expiry is None:
+            expiry = _jwt_exp(raw_token)
+        now = time.time()
+        if expiry is not None and expiry - now > _AUTHZ_REFRESH_MARGIN_S:
+            self._cached_authz_token = token
+            self._authz_token_refresh_at = expiry - _AUTHZ_REFRESH_MARGIN_S
+            return token
+
+        logger.warning(
+            "Authorization token from %s has %s; caching it for at most %d seconds.",
+            url,
+            "no readable expiry"
+            if expiry is None
+            else f"{expiry - now:.0f} seconds left before expiry",
+            _AUTHZ_DEFAULT_TTL_S,
+        )
+        ttl = (
+            _AUTHZ_DEFAULT_TTL_S
+            if expiry is None
+            else min(_AUTHZ_DEFAULT_TTL_S, expiry - now)
+        )
+        if ttl > 0:
+            self._cached_authz_token = token
+            self._authz_token_refresh_at = now + ttl
+        else:
+            self._cached_authz_token = None
+            self._authz_token_refresh_at = 0.0
+        return token
+
+    def _invalidate_authorization_token(self, rejected: str) -> None:
+        # Compare with the rejected value so parallel 401s on the same token
+        # do not drop a token another request has already refreshed.
+        cached = self._cached_authz_token
+        if cached is not None and cached.get_secret_value() == rejected:
+            self._cached_authz_token = None
+            self._authz_token_refresh_at = 0.0
+
+    async def _with_auth_retry(
+        self, send: Callable[[dict[str, str]], Awaitable[_T]]
+    ) -> _T:
+        """Call *send* with auth headers, and retry it once with a new
+        authorization token if the warehouse rejects the current one with 401.
+
+        *send* must raise ``httpx.HTTPStatusError`` from the status check,
+        before it reads any body, so a retried stream never mixes two responses.
+        """
+        headers = await self._get_auth_headers()
+        sent_authz_token = headers.get(AUTHORIZATION_TOKEN_HEADER)
+        try:
+            return await send(headers)
+        except httpx.HTTPStatusError as exc:
+            if sent_authz_token is None or exc.response.status_code != 401:
+                raise
+            dwh_error = exc
+        self._invalidate_authorization_token(sent_authz_token)
+        try:
+            retry_headers = await self._get_auth_headers()
+        except AuthorizationTokenError as exc:
+            raise AuthorizationTokenError(
+                f"{exc} (after the warehouse rejected the authorization token "
+                "with HTTP 401)"
+            ) from dwh_error
+        return await send(retry_headers)
+
+    async def _get_auth_headers(self) -> dict[str, str]:
         """Return authentication headers for API requests.
 
         Includes the EarthRanger API token and a Google Cloud ID token
-        for authenticating to the private Cloud Run warehouse service.
+        for authenticating to the private Cloud Run warehouse service, plus
+        the EarthRanger authorization token when it is enabled and available.
         """
         base_url = self.warehouse_base_url or self._resolved_base_url
         if not base_url:
@@ -466,10 +722,14 @@ class ERWarehouseClient(BaseModel):
             raise ValueError(
                 f"Could not extract a valid hostname from warehouse URL: {base_url!r}"
             )
-        return {
+        headers = {
             "X-EarthRanger-API-Token": self._token.get_secret_value(),
             "Authorization": f"Bearer {self._get_id_token(audience).get_secret_value()}",
         }
+        authz_token = await self._get_authorization_token()
+        if authz_token is not None:
+            headers[AUTHORIZATION_TOKEN_HEADER] = authz_token.get_secret_value()
+        return headers
 
     async def _fetch_observations_arrow(
         self,
@@ -478,14 +738,15 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch observations as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _search_table(
-                client=client,
-                route=f"{self.warehouse_observations_endpoint}/search/stream/arrow",
-                query=query,
-                headers=self._get_auth_headers(),
-                store_type=query_engine,
+            return await self._with_auth_retry(
+                lambda headers: _search_table(
+                    client=client,
+                    route=f"{self.warehouse_observations_endpoint}/search/stream/arrow",
+                    query=query,
+                    store_type=query_engine,
+                    headers=headers,
+                )
             )
-        return table
 
     async def _fetch_patrols_arrow(
         self,
@@ -494,14 +755,15 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch patrols as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _search_table(
-                client=client,
-                route=f"{self.warehouse_patrols_endpoint}/search/stream/arrow",
-                query=query,
-                headers=self._get_auth_headers(),
-                store_type=query_engine,
+            return await self._with_auth_retry(
+                lambda headers: _search_table(
+                    client=client,
+                    route=f"{self.warehouse_patrols_endpoint}/search/stream/arrow",
+                    query=query,
+                    store_type=query_engine,
+                    headers=headers,
+                )
             )
-        return table
 
     async def _fetch_events_arrow(
         self,
@@ -510,14 +772,15 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch events as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _search_table(
-                client=client,
-                route=f"{self.warehouse_events_endpoint}/search/stream/arrow",
-                query=query,
-                headers=self._get_auth_headers(),
-                store_type=query_engine,
+            return await self._with_auth_retry(
+                lambda headers: _search_table(
+                    client=client,
+                    route=f"{self.warehouse_events_endpoint}/search/stream/arrow",
+                    query=query,
+                    store_type=query_engine,
+                    headers=headers,
+                )
             )
-        return table
 
     async def _fetch_event_types_arrow(
         self,
@@ -526,14 +789,15 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch event types as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _get_table(
-                client=client,
-                route=self.warehouse_event_types_endpoint,
-                query=query,
-                headers=self._get_auth_headers(),
-                store_type=query_engine,
+            return await self._with_auth_retry(
+                lambda headers: _get_table(
+                    client=client,
+                    route=self.warehouse_event_types_endpoint,
+                    query=query,
+                    store_type=query_engine,
+                    headers=headers,
+                )
             )
-        return table
 
     async def _fetch_details_schema(
         self,
@@ -561,18 +825,23 @@ class ERWarehouseClient(BaseModel):
         if parse_detail_datetimes:
             params["parse_detail_datetimes"] = True
         async with self._httpx_client() as client:
-            response = await client.get(
-                route,
-                params=params,
-                headers=self._get_auth_headers(),
-                timeout=600,
-            )
-            if response.status_code == 404 and not_found_hint is not None:
-                raise ValueError(_http_detail(response) or not_found_hint)
-            response.raise_for_status()
-            if fmt == "json":
-                return response.json()
-            return pa.ipc.read_schema(pa.py_buffer(response.content))
+
+            async def send(headers: dict[str, str]) -> httpx.Response:
+                response = await client.get(
+                    route,
+                    params=params,
+                    headers=headers,
+                    timeout=600,
+                )
+                if response.status_code == 404 and not_found_hint is not None:
+                    raise ValueError(_http_detail(response) or not_found_hint)
+                response.raise_for_status()
+                return response
+
+            response = await self._with_auth_retry(send)
+        if fmt == "json":
+            return response.json()
+        return pa.ipc.read_schema(pa.py_buffer(response.content))
 
     async def _fetch_event_schema(
         self,
@@ -598,14 +867,15 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch patrol types as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _get_table(
-                client=client,
-                route=self.warehouse_patrol_types_endpoint,
-                query=query,
-                headers=self._get_auth_headers(),
-                store_type=query_engine,
+            return await self._with_auth_retry(
+                lambda headers: _get_table(
+                    client=client,
+                    route=self.warehouse_patrol_types_endpoint,
+                    query=query,
+                    store_type=query_engine,
+                    headers=headers,
+                )
             )
-        return table
 
     async def _fetch_patrol_schema(
         self,
