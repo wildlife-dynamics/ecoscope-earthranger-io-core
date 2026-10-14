@@ -58,6 +58,7 @@ def _raise_for_status_with_detail(response: httpx.Response) -> None:
             detail = _http_detail(response) or response.text.strip()
         except httpx.ResponseNotRead:
             detail = ""
+        detail = " ".join(detail.split())
         if not detail:
             raise
         if len(detail) > _ERROR_BODY_MAX_CHARS:
@@ -75,9 +76,9 @@ async def _araise_for_status_with_detail(response: httpx.Response) -> None:
     if not response.is_success:
         try:
             await response.aread()
-        except httpx.TransportError:
-            # Callers branch on the status code (e.g. 401 retry), so a failed
-            # body read must not replace the HTTPStatusError.
+        except httpx.HTTPError:
+            # Callers rely on an HTTPStatusError carrying the status code, so
+            # a failed body read must not replace it.
             pass
     _raise_for_status_with_detail(response)
 

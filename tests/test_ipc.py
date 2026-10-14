@@ -2393,3 +2393,58 @@ async def test_stream_error_body_read_failure_keeps_http_status_error(error) -> 
     summary = str(exc_info.value).splitlines()[0]
     assert summary.startswith("Client error '401 Unauthorized' for url ")
     assert summary.endswith("'")
+
+
+@pytest.mark.asyncio
+async def test_stream_error_body_decoding_failure_keeps_http_status_error() -> None:
+    async def _app(scope, receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 502,
+                "headers": [
+                    (b"content-type", b"text/html"),
+                    (b"content-encoding", b"gzip"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"not gzip"})
+
+    async with AsyncClient(
+        transport=ASGITransport(_app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await _get_table(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    assert exc_info.value.response.status_code == 502
+    assert exc_info.value.__cause__ is None
+    summary = str(exc_info.value).splitlines()[0]
+    assert summary.startswith("Server error '502 Bad Gateway' for url ")
+    assert summary.endswith("'")
+
+
+@pytest.mark.asyncio
+async def test_stream_error_with_multiline_body_keeps_a_single_line_summary() -> None:
+    body = (
+        b"<html>\n<head><title>502 Bad Gateway</title></head>\n"
+        b"<body>\n  <h1>Bad Gateway</h1>\n\t<p>upstream failed</p>\n</body>\n</html>\n"
+    )
+    app = _error_asgi_app(502, body, b"text/html")
+    async with AsyncClient(
+        transport=ASGITransport(app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await _search_table(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    assert exc_info.value.response.status_code == 502
+    summary = str(exc_info.value).splitlines()[0]
+    assert summary.endswith(
+        ": <html> <head><title>502 Bad Gateway</title></head> <body> "
+        "<h1>Bad Gateway</h1> <p>upstream failed</p> </body> </html>"
+    )
