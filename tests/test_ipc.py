@@ -2153,3 +2153,298 @@ def test_get_patrols_raw_mode_matches_the_published_nested_schema(
         )
 
     assert table.schema.equals(PATROLS_WITH_EVENTS_NESTED_SCHEMA_V1)
+
+
+# -------------------------------------------------------------------------
+# Error detail surfacing
+# -------------------------------------------------------------------------
+
+_SUBJECT_GROUP_DETAIL = (
+    "Subject group 'elephants' was not found in the data warehouse for this "
+    "tenant. Recently created or modified groups can take up to 3 hours to "
+    "become available."
+)
+
+
+def _error_asgi_app(status: int, body: bytes, content_type: bytes):
+    async def _app(scope, receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [(b"content-type", content_type)],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    return _app
+
+
+def _json_error_app(status: int, payload: object):
+    return _error_asgi_app(status, json.dumps(payload).encode(), b"application/json")
+
+
+def _observations_query() -> ObservationsQuery:
+    return ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_group_name="elephants",
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 12, 31),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fetch", [_get_table, _search_table])
+async def test_stream_error_includes_api_detail(fetch) -> None:
+    app = _json_error_app(422, {"detail": _SUBJECT_GROUP_DETAIL})
+    async with AsyncClient(
+        transport=ASGITransport(app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await fetch(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    exc = exc_info.value
+    assert exc.response.status_code == 422
+    assert exc.request.url.path == "/observations/search/stream/arrow"
+    assert isinstance(exc.__cause__, httpx.HTTPStatusError)
+    summary = str(exc).splitlines()[0]
+    assert summary.startswith("Client error '422 Unprocessable Entity'")
+    assert summary.endswith(f": {_SUBJECT_GROUP_DETAIL}")
+
+
+@pytest.mark.asyncio
+async def test_stream_error_with_list_detail_falls_back_to_truncated_body() -> None:
+    """FastAPI validation errors carry a list ``detail``; show the raw body."""
+    payload = {
+        "detail": [
+            {"loc": ["body", "subject_ids", i], "msg": "bad id", "type": "x"}
+            for i in range(50)
+        ]
+    }
+    app = _json_error_app(422, payload)
+    async with AsyncClient(
+        transport=ASGITransport(app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await _search_table(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    summary = str(exc_info.value).splitlines()[0]
+    assert exc_info.value.response.status_code == 422
+    assert ': {"detail": [{"loc": ["body", "subject_ids", 0]' in summary
+    assert summary.endswith("...")
+    detail = summary.split(": ", 1)[1]
+    assert len(detail) == 500 + len("...")
+
+
+@pytest.mark.asyncio
+async def test_stream_error_with_non_json_body_uses_body_text() -> None:
+    app = _error_asgi_app(500, b"Internal Server Error\n", b"text/plain")
+    async with AsyncClient(
+        transport=ASGITransport(app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await _get_table(
+                client=client,
+                route="/event_types",
+                query=_observations_query(),
+            )
+    assert exc_info.value.response.status_code == 500
+    assert str(exc_info.value).splitlines()[0].endswith(": Internal Server Error")
+
+
+@pytest.mark.asyncio
+async def test_stream_error_with_empty_body_keeps_the_plain_message() -> None:
+    app = _error_asgi_app(502, b"", b"text/plain")
+    async with AsyncClient(
+        transport=ASGITransport(app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await _search_table(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    assert exc_info.value.response.status_code == 502
+    assert exc_info.value.__cause__ is None
+    assert str(exc_info.value).splitlines()[0] == (
+        "Server error '502 Bad Gateway' for url "
+        "'http://test/observations/search/stream/arrow'"
+    )
+
+
+def test_client_surfaces_api_detail_from_observations() -> None:
+    app = _json_error_app(422, {"detail": _SUBJECT_GROUP_DETAIL})
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        with pytest.raises(httpx.HTTPStatusError, match="up to 3 hours"):
+            _client().get_subjectgroup_observations(
+                subject_group_name="elephants",
+                since="2023-01-01T00:00:00",
+                until="2023-12-31T00:00:00",
+            )
+
+
+def test_schema_error_other_than_404_includes_api_detail() -> None:
+    app = FastAPI()
+
+    @app.get("/patrols/schema")
+    async def _schema():
+        return Response(
+            content=json.dumps({"detail": "BigQuery quota exceeded"}),
+            status_code=503,
+            media_type="application/json",
+        )
+
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
+    ):
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            _client().get_patrol_schema("routine_patrol")
+    assert exc_info.value.response.status_code == 503
+    assert "BigQuery quota exceeded" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_resolve_warehouse_url_error_includes_status_detail() -> None:
+    url = "https://some-site.pamdas.org/api/v1.0/status"
+    response = httpx.Response(
+        403,
+        json={"detail": "Authentication credentials were not provided."},
+        request=httpx.Request("GET", url),
+    )
+    mock_ctx = AsyncMock()
+    mock_ctx.get.return_value = response
+    er_client = ERWarehouseClient(server="some-site.pamdas.org", token="abc")
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_instance.__aenter__.return_value = mock_ctx
+        mock_instance.__aexit__.return_value = False
+        mock_client_cls.return_value = mock_instance
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await er_client._resolve_warehouse_url()
+
+    assert exc_info.value.response.status_code == 403
+    assert "Authentication credentials were not provided." in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fetch", [_get_table, _search_table])
+async def test_stream_redirect_raises_http_status_error(fetch) -> None:
+    async def _app(scope, receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 307,
+                "headers": [(b"location", b"http://test/elsewhere")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b""})
+
+    async with AsyncClient(
+        transport=ASGITransport(_app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await fetch(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    assert exc_info.value.response.status_code == 307
+    assert str(exc_info.value).startswith("Redirect response '307 Temporary Redirect'")
+
+
+class _FailingStream(httpx.AsyncByteStream):
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def __aiter__(self):
+        yield b'{"detail": "partial'
+        raise self._error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error", [httpx.ReadError("connection reset"), httpx.ReadTimeout("timed out")]
+)
+async def test_stream_error_body_read_failure_keeps_http_status_error(error) -> None:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, stream=_FailingStream(error))
+
+    async with AsyncClient(
+        transport=httpx.MockTransport(_handler), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await _get_table(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    assert exc_info.value.response.status_code == 401
+    assert exc_info.value.__cause__ is None
+    summary = str(exc_info.value).splitlines()[0]
+    assert summary.startswith("Client error '401 Unauthorized' for url ")
+    assert summary.endswith("'")
+
+
+@pytest.mark.asyncio
+async def test_stream_error_body_decoding_failure_keeps_http_status_error() -> None:
+    async def _app(scope, receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 502,
+                "headers": [
+                    (b"content-type", b"text/html"),
+                    (b"content-encoding", b"gzip"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"not gzip"})
+
+    async with AsyncClient(
+        transport=ASGITransport(_app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await _get_table(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    assert exc_info.value.response.status_code == 502
+    assert exc_info.value.__cause__ is None
+    summary = str(exc_info.value).splitlines()[0]
+    assert summary.startswith("Server error '502 Bad Gateway' for url ")
+    assert summary.endswith("'")
+
+
+@pytest.mark.asyncio
+async def test_stream_error_with_multiline_body_keeps_a_single_line_summary() -> None:
+    body = (
+        b"<html>\n<head><title>502 Bad Gateway</title></head>\n"
+        b"<body>\n  <h1>Bad Gateway</h1>\n\t<p>upstream failed</p>\n</body>\n</html>\n"
+    )
+    app = _error_asgi_app(502, body, b"text/html")
+    async with AsyncClient(
+        transport=ASGITransport(app), base_url="http://test"
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await _search_table(
+                client=client,
+                route="/observations/search/stream/arrow",
+                query=_observations_query(),
+            )
+    assert exc_info.value.response.status_code == 502
+    summary = str(exc_info.value).splitlines()[0]
+    assert summary.endswith(
+        ": <html> <head><title>502 Bad Gateway</title></head> <body> "
+        "<h1>Bad Gateway</h1> <p>upstream failed</p> </body> </html>"
+    )

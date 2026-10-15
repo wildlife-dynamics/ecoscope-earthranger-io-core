@@ -41,6 +41,48 @@ def _http_detail(response: httpx.Response) -> str | None:
     return detail if isinstance(detail, str) else None
 
 
+_ERROR_BODY_MAX_CHARS = 500
+
+
+def _raise_for_status_with_detail(response: httpx.Response) -> None:
+    """Like ``raise_for_status``, but with the API's error detail in the message.
+
+    The body must already be read. Raises the same ``HTTPStatusError`` type
+    with the same ``request``/``response``, so callers branching on
+    ``exc.response.status_code`` are unaffected.
+    """
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        try:
+            detail = _http_detail(response) or response.text.strip()
+        except httpx.ResponseNotRead:
+            detail = ""
+        detail = " ".join(detail.split())
+        if not detail:
+            raise
+        if len(detail) > _ERROR_BODY_MAX_CHARS:
+            detail = detail[:_ERROR_BODY_MAX_CHARS] + "..."
+        summary, sep, rest = str(exc).partition("\n")
+        raise httpx.HTTPStatusError(
+            f"{summary}: {detail}{sep}{rest}",
+            request=exc.request,
+            response=exc.response,
+        ) from exc
+
+
+async def _araise_for_status_with_detail(response: httpx.Response) -> None:
+    """Streamed variant of :func:`_raise_for_status_with_detail`."""
+    if not response.is_success:
+        try:
+            await response.aread()
+        except httpx.HTTPError:
+            # Callers rely on an HTTPStatusError carrying the status code, so
+            # a failed body read must not replace it.
+            pass
+    _raise_for_status_with_detail(response)
+
+
 def _segment_detail_types(patrols: pa.Table) -> dict[str, pa.DataType | None]:
     """Read the detail field types off a nested patrols table's segment struct.
 
@@ -189,7 +231,7 @@ async def _get_table(
         headers=headers,
         timeout=600,
     ) as response:
-        response.raise_for_status()
+        await _araise_for_status_with_detail(response)
         sink = io.BytesIO()
         async for chunk in response.aiter_bytes():
             sink.write(chunk)
@@ -256,7 +298,7 @@ async def _search_table(
         headers=headers,
         timeout=600,
     ) as response:
-        response.raise_for_status()
+        await _araise_for_status_with_detail(response)
         sink = io.BytesIO()
         async for chunk in response.aiter_bytes():
             sink.write(chunk)
@@ -386,7 +428,7 @@ class ERWarehouseClient(BaseModel):
                 f"https://{self.server}/api/v1.0/status",
                 timeout=30.0,
             )
-            response.raise_for_status()
+            _raise_for_status_with_detail(response)
             data = response.json()
 
         try:
@@ -569,7 +611,7 @@ class ERWarehouseClient(BaseModel):
             )
             if response.status_code == 404 and not_found_hint is not None:
                 raise ValueError(_http_detail(response) or not_found_hint)
-            response.raise_for_status()
+            _raise_for_status_with_detail(response)
             if fmt == "json":
                 return response.json()
             return pa.ipc.read_schema(pa.py_buffer(response.content))
