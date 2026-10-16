@@ -36,6 +36,7 @@ def test_observations_query_from_query_params_round_trip(value):
         patrols_overlap_daterange=True,
         include_patrol_details=False,
         include_subject_additional=False,
+        include_subject_promoted_fields=True,
         exclusion_flags=value,
     )
     assert q.exclusion_flags == value
@@ -77,6 +78,7 @@ def test_observations_query_from_query_params_patrols_overlap_daterange(value):
         patrols_overlap_daterange=value,
         include_patrol_details=False,
         include_subject_additional=False,
+        include_subject_promoted_fields=True,
         exclusion_flags=None,
     )
     assert q.patrols_overlap_daterange is value
@@ -116,9 +118,56 @@ def test_observations_query_from_query_params_include_subject_additional(value):
         patrols_overlap_daterange=True,
         include_patrol_details=False,
         include_subject_additional=value,
+        include_subject_promoted_fields=True,
         exclusion_flags=None,
     )
     assert q.include_subject_additional is value
+
+
+def test_observations_query_include_subject_promoted_fields_default_is_true():
+    """On by default: these mirror fields EarthRanger exposes on every subject, and
+    consumers group by them (e.g. "Subject Sex") without asking."""
+    q = ObservationsQuery(tenant_domain="example.pamdas.org")
+    assert q.include_subject_promoted_fields is True
+    assert q.model_dump()["include_subject_promoted_fields"] is True
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_observations_query_include_subject_promoted_fields_round_trip(value):
+    q = ObservationsQuery(
+        tenant_domain="example.pamdas.org", include_subject_promoted_fields=value
+    )
+    assert q.include_subject_promoted_fields is value
+    assert q.model_dump()["include_subject_promoted_fields"] is value
+    assert (
+        ObservationsQuery.model_validate_json(
+            q.model_dump_json()
+        ).include_subject_promoted_fields
+        is value
+    )
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_observations_query_from_query_params_include_subject_promoted_fields(value):
+    # ``from_query_params`` is a FastAPI dependency; when called directly
+    # we must pass every parameter explicitly so the ``Query(...)``
+    # sentinels don't leak into pydantic.
+    q = ObservationsQuery.from_query_params(
+        tenant_domain="example.pamdas.org",
+        range_start=None,
+        range_end=None,
+        subject_ids=None,
+        subject_group_name=None,
+        patrol_ids=None,
+        patrol_type_value=None,
+        patrol_status=None,
+        patrols_overlap_daterange=True,
+        include_patrol_details=False,
+        include_subject_additional=False,
+        include_subject_promoted_fields=value,
+        exclusion_flags=None,
+    )
+    assert q.include_subject_promoted_fields is value
 
 
 def test_patrols_query_patrols_overlap_daterange_default_is_true():

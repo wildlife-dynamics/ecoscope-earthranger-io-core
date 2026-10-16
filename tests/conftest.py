@@ -26,6 +26,10 @@ def _split_datetime_range_by_delta(
         current_start_date = current_end_date
 
 
+# Distinct per subject so grouping by sex can be asserted; other ids get NULL.
+MOCK_SUBJECT_SEX = {"subject1": "female", "subject2": "male"}
+
+
 def _mock_observations_generator(
     tenant_domain: str,
     range_start: datetime | None,
@@ -33,6 +37,7 @@ def _mock_observations_generator(
     subject_ids: list[str] | None = None,
     columns: list[str] | None = None,
     include_patrol_details: bool = False,
+    include_subject_promoted_fields: bool = True,
     **kwargs,  # Accept and ignore additional kwargs like subject_group_name, patrol_type_value, etc.
 ) -> Generator:
     """Generate mock observation records.
@@ -44,6 +49,7 @@ def _mock_observations_generator(
         subject_ids: List of subject IDs to generate data for
         columns: Optional list of columns to include in output
         include_patrol_details: If True, include patrol-related fields in output
+        include_subject_promoted_fields: If False, the promoted subject_* fields are null
         **kwargs: Additional kwargs (ignored) for compatibility with ObservationsQuery fields
     """
     # Default time range if not provided
@@ -89,6 +95,15 @@ def _mock_observations_generator(
                 "observation_id": str(uuid.uuid4()),
                 "source_id": source_id,
             }
+            promoted = {
+                "subject_sex": MOCK_SUBJECT_SEX.get(subject_id),
+                "subject_region": "mock-region",
+                "subject_country": "mock-country",
+                "subject_species": "mock-species",
+            }
+            record.update(
+                promoted if include_subject_promoted_fields else dict.fromkeys(promoted)
+            )
 
             # Add patrol fields if requested
             if include_patrol_details:

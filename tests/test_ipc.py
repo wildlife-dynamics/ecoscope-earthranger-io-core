@@ -2448,3 +2448,149 @@ async def test_stream_error_with_multiline_body_keeps_a_single_line_summary() ->
         ": <html> <head><title>502 Bad Gateway</title></head> <body> "
         "<h1>Bad Gateway</h1> <p>upstream failed</p> </body> </html>"
     )
+
+
+# -------------------------------------------------------------------------
+# include_subject_promoted_fields
+# -------------------------------------------------------------------------
+
+_PROMOTED_SLIM_COLUMNS = [
+    "extra__subject__sex",
+    "extra__subject__region",
+    "extra__subject__country",
+    "extra__subject__species",
+]
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_client_get_subjectgroup_observations_forwards_include_subject_promoted_fields(
+    app: FastAPI,
+    value: bool,
+) -> None:
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        table = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        ).get_subjectgroup_observations(
+            subject_group_name="Ecoscope",
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            include_subject_promoted_fields=value,
+        )
+
+    assert captured["body"]["include_subject_promoted_fields"] is value
+    assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
+    for col in _PROMOTED_SLIM_COLUMNS:
+        assert (table.column(col).null_count == table.num_rows) is not value
+
+
+def test_client_get_subjectgroup_observations_promoted_fields_on_by_default(
+    app: FastAPI,
+) -> None:
+    captured: dict = {}
+    with patch.object(
+        ERWarehouseClient, "_httpx_client", _capturing_mock_httpx_client(app, captured)
+    ):
+        table = ERWarehouseClient(
+            server="some-site.pamdas.org",
+            token="abc",
+            warehouse_base_url="http://test",
+        ).get_subjectgroup_observations(
+            subject_group_name="Ecoscope",
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+        )
+
+    assert captured["body"]["include_subject_promoted_fields"] is True
+    assert set(table.column("extra__subject__sex").to_pylist()) == {"female", "male"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [True, False])
+async def test_observations_routes_honour_include_subject_promoted_fields(
+    app: FastAPI,
+    value: bool,
+) -> None:
+    """GET carries the flag in the query string, POST in the body; both must reach
+    the store and keep the stream schema stable."""
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1", "subject2"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 1, 2),
+        include_subject_promoted_fields=value,
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app),
+        base_url="http://test",
+    ) as client:
+        tables = [
+            await _get_table(
+                client=client, route="/observations/stream/arrow", query=query
+            ),
+            await _search_table(
+                client=client, route="/observations/search/stream/arrow", query=query
+            ),
+        ]
+
+    for table in tables:
+        assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
+        for col in _PROMOTED_SLIM_COLUMNS:
+            assert (table.column(col).null_count == table.num_rows) is not value
+
+
+# Without patrol details these routes return ECOSCOPE_SLIM_V1, so the flag must
+# reach the server for the caller to be able to opt out.
+_PATROL_PROMOTED_CALLS = {
+    "with_patrol_filter": lambda client, **kwargs: (
+        client.get_patrol_observations_with_patrol_filter(
+            since="2015-01-01T12:00:00",
+            until="2015-03-01T12:00:00",
+            patrol_type_value=["routine_patrol"],
+            status=["done"],
+            include_patrol_details=False,
+            **kwargs,
+        )
+    ),
+    "patrol_ids": lambda client, **kwargs: client.get_patrol_observations(
+        patrols_df=pa.table({"id": pa.array(["patrol1"], type=pa.string())}),
+        include_patrol_details=False,
+        **kwargs,
+    ),
+}
+
+
+@pytest.mark.parametrize("method", list(_PATROL_PROMOTED_CALLS))
+@pytest.mark.parametrize("value", [True, False])
+def test_client_patrol_observations_forward_include_subject_promoted_fields(
+    app: FastAPI,
+    method: str,
+    value: bool,
+) -> None:
+    captured: dict = {}
+    with _capture_request(app, captured):
+        table = _PATROL_PROMOTED_CALLS[method](
+            _client(), include_subject_promoted_fields=value
+        )
+
+    assert captured["body"]["include_subject_promoted_fields"] is value
+    assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
+    assert table.num_rows > 0
+    for col in _PROMOTED_SLIM_COLUMNS:
+        assert (table.column(col).null_count == table.num_rows) is not value
+
+
+@pytest.mark.parametrize("method", list(_PATROL_PROMOTED_CALLS))
+def test_client_patrol_observations_promoted_fields_on_by_default(
+    app: FastAPI,
+    method: str,
+) -> None:
+    captured: dict = {}
+    with _capture_request(app, captured):
+        _PATROL_PROMOTED_CALLS[method](_client())
+
+    assert captured["body"]["include_subject_promoted_fields"] is True
