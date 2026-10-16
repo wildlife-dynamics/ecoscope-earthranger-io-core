@@ -6,6 +6,7 @@ import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pyarrow as pa
 import pytest
 from ecoscope_earthranger_io_core.arrow import (
+    OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1,
     OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
     OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1,
     SchemaChoices,
@@ -49,11 +50,19 @@ def test_slim_schema_carries_the_subject_id_under_the_earthranger_name():
         "extra__subject__additional",
         "extra__source",
         "junk_status",
+        "extra__subject__sex",
+        "extra__subject__region",
+        "extra__subject__country",
+        "extra__subject__species",
     ]
 
 
-def _observations_pre_transform_batch(subject_additional):
+PROMOTED_SUBJECT_FIELDS = ["sex", "region", "country", "species"]
+
+
+def _observations_pre_transform_batch(subject_additional, promoted=None):
     """One-row batch shaped like the store's SELECT for the ECOSCOPE_SLIM_V1 transform."""
+    promoted = promoted or {}
     transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
     return transform, pa.record_batch(
         {
@@ -64,6 +73,9 @@ def _observations_pre_transform_batch(subject_additional):
             "subject_subtype_id": ["elephant"],
             "subject_additional": [subject_additional],
             "source_id": ["source1"],
+            **{
+                f"subject_{key}": [promoted.get(key)] for key in PROMOTED_SUBJECT_FIELDS
+            },
         },
         schema=transform.pre_transform_schema,
     )
@@ -178,6 +190,10 @@ def test_slim_transform_populates_subject_id_from_the_same_source_as_groupby_col
             "subject_subtype_id": ["elephant"] * len(subject_ids),
             "subject_additional": [SUBJECT_ADDITIONAL_JSON] * len(subject_ids),
             "source_id": ["source1", "source2", "source1"],
+            "subject_sex": ["female", "male", "female"],
+            "subject_region": [None] * len(subject_ids),
+            "subject_country": [None] * len(subject_ids),
+            "subject_species": [None] * len(subject_ids),
         },
         schema=transform.pre_transform_schema,
     )
@@ -220,6 +236,10 @@ def test_slim_pre_transform_schema_is_the_store_projection_contract():
         "subject_subtype_id",
         "subject_additional",
         "source_id",
+        "subject_sex",
+        "subject_region",
+        "subject_country",
+        "subject_species",
     ]
 
 
@@ -239,7 +259,125 @@ def test_slim_transform_requires_subject_additional_column():
             "subject_name": ["eco_1"],
             "subject_subtype_id": ["elephant"],
             "source_id": ["source1"],
+            "subject_sex": ["female"],
+            "subject_region": ["Mara"],
+            "subject_country": ["Kenya"],
+            "subject_species": ["elephant"],
         },
+        schema=without,
+    )
+
+    with pytest.raises(ValueError, match="field names are not matching"):
+        transform.transform(rb)
+
+
+def test_full_schema_appends_promoted_subject_fields_as_strings():
+    """Appended after every pre-existing column (additive V1 change), so positional
+    readers of the earlier columns are undisturbed."""
+    assert OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1.names[-5:] == [
+        "source_id",
+        "subject_sex",
+        "subject_region",
+        "subject_country",
+        "subject_species",
+    ]
+    for key in PROMOTED_SUBJECT_FIELDS:
+        field = OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1.field(f"subject_{key}")
+        assert field.type == pa.string()
+        assert field.nullable
+
+
+def test_slim_schema_promoted_subject_fields_are_nullable_strings():
+    for key in PROMOTED_SUBJECT_FIELDS:
+        field = OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1.field(f"extra__subject__{key}")
+        assert field.type == pa.string()
+        assert field.nullable
+
+
+def test_promoted_subject_fields_stay_out_of_the_patrol_schema():
+    """The EarthRanger patrol-observations path carries no subject attributes."""
+    for key in PROMOTED_SUBJECT_FIELDS:
+        assert (
+            f"extra__subject__{key}"
+            not in OBSERVATIONS_WITH_PATROL_SCHEMA_SLIM_V1.names
+        )
+
+
+@pytest.mark.parametrize(
+    "promoted",
+    [
+        pytest.param(
+            {
+                "sex": "female",
+                "region": "Mara",
+                "country": "Kenya",
+                "species": "elephant",
+            },
+            id="all-populated",
+        ),
+        pytest.param({"sex": "male"}, id="partial-missing-keys-null"),
+        pytest.param({}, id="all-null-opted-out-or-absent"),
+    ],
+)
+def test_slim_transform_maps_promoted_subject_fields(promoted):
+    """Each `subject_<key>` lands in `extra__subject__<key>` unchanged, NULLs
+    included, without disturbing the columns around it."""
+    transform, rb = _observations_pre_transform_batch(SUBJECT_ADDITIONAL_JSON, promoted)
+
+    out = transform.transform(rb)
+
+    assert out.schema.equals(transform.stream_schema)
+    for key in PROMOTED_SUBJECT_FIELDS:
+        assert out.column(f"extra__subject__{key}")[0].as_py() == promoted.get(key)
+    assert out.column("extra__subject__additional")[0].as_py() == (
+        SUBJECT_ADDITIONAL_JSON
+    )
+    assert out.column("junk_status")[0].as_py() is False
+    assert out.column("extra__source")[0].as_py() == "source1"
+
+
+def test_slim_transform_keeps_promoted_subject_fields_row_aligned():
+    """Distinct values per row, so a column landing under the wrong name or a
+    shifted row cannot pass by coincidence."""
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    n = 3
+    rb = pa.record_batch(
+        {
+            "location": ga.array([ga.as_wkb(["POINT (37.5 -2.5)"])[0].wkb] * n),
+            "recorded_at": ["2015-01-01T00:00:00"] * n,
+            "subject_id": ["s1", "s2", "s3"],
+            "subject_name": ["n1", "n2", "n3"],
+            "subject_subtype_id": ["elephant"] * n,
+            "subject_additional": [None] * n,
+            "source_id": ["src1", "src2", "src3"],
+            "subject_sex": ["female", None, "male"],
+            "subject_region": ["r1", "r2", None],
+            "subject_country": [None, "c2", "c3"],
+            "subject_species": ["sp1", "sp2", "sp3"],
+        },
+        schema=transform.pre_transform_schema,
+    )
+
+    out = transform.transform(rb)
+
+    assert out.column("extra__subject__sex").to_pylist() == ["female", None, "male"]
+    assert out.column("extra__subject__region").to_pylist() == ["r1", "r2", None]
+    assert out.column("extra__subject__country").to_pylist() == [None, "c2", "c3"]
+    assert out.column("extra__subject__species").to_pylist() == ["sp1", "sp2", "sp3"]
+    assert out.column("groupby_col").to_pylist() == ["s1", "s2", "s3"]
+    assert out.column("extra__subject__name").to_pylist() == ["n1", "n2", "n3"]
+    assert out.column("extra__source").to_pylist() == ["src1", "src2", "src3"]
+
+
+def test_slim_transform_requires_promoted_subject_field_columns():
+    """A store that does not project the promoted columns must fail loudly."""
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    without = transform.pre_transform_schema.remove(
+        transform.pre_transform_schema.get_field_index("subject_sex")
+    )
+    rb = pa.record_batch(
+        {name: [None] for name in without.names if name != "location"}
+        | {"location": ga.array([ga.as_wkb(["POINT (37.5 -2.5)"])[0].wkb])},
         schema=without,
     )
 
@@ -344,3 +482,50 @@ async def test_generate_bytes_includes_subject_id():
     assert subject_ids
     assert all(v is not None for v in subject_ids)
     assert subject_ids == table.column("groupby_col").to_pylist()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("include_subject_promoted_fields", [True, False])
+async def test_generate_bytes_carries_promoted_subject_fields(
+    include_subject_promoted_fields,
+):
+    """Over the streaming path: populated per subject by default, present but NULL
+    when the query opts out."""
+    transform = TRANSFORMS[SchemaChoices.ECOSCOPE_SLIM_V1]
+    query = ObservationsQuery(
+        tenant_domain="some-site.pamdas.org",
+        subject_ids=["subject1", "subject2"],
+        range_start=datetime(2023, 1, 1),
+        range_end=datetime(2023, 1, 2),
+        include_subject_promoted_fields=include_subject_promoted_fields,
+    )
+    async_batch_generator = get_async_rb_generator_from_storage_backend(
+        query,
+        columns=transform.required_columns,
+        schema=transform.pre_transform_schema,
+    )
+    content_stream = transform.generate_bytes(
+        async_batch_generator=async_batch_generator()
+    )
+    sink = io.BytesIO()
+    async for chunk in content_stream:
+        sink.write(chunk)
+    sink.seek(0)
+    table = pa.ipc.open_stream(sink).read_all()
+
+    assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
+    rows = zip(
+        table.column("groupby_col").to_pylist(),
+        table.column("extra__subject__sex").to_pylist(),
+    )
+    if include_subject_promoted_fields:
+        assert {(sid, sex) for sid, sex in rows} == {
+            ("subject1", "female"),
+            ("subject2", "male"),
+        }
+        assert set(table.column("extra__subject__species").to_pylist()) == {
+            "mock-species"
+        }
+    else:
+        for key in PROMOTED_SUBJECT_FIELDS:
+            assert table.column(f"extra__subject__{key}").null_count == table.num_rows
