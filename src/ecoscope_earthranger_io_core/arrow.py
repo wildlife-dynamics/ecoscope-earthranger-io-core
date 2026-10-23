@@ -29,7 +29,8 @@ OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
         ("subject_subtype_id", pa.string()),
         # Free-form per-subject JSON, as a string (EarthRanger declares no schema for
         # it). Holds `rgb` -- used for per-subject track colouring -- plus
-        # `sex`/`region`/`country`/`species`. Values:
+        # `sex`/`region`/`country`/`species`, which are also promoted to the
+        # `subject_<key>` columns below. Values:
         #     NULL   not requested
         #     '{}'   requested; the subject has no attributes
         #     JSON   requested; the subject's attributes
@@ -38,6 +39,13 @@ OBSERVATIONS_SCHEMA__EARTHRANGER_FULL_V1 = pa.schema(
         ("domain", pa.string()),
         ("observation_id", pa.string()),
         ("source_id", pa.string()),
+        # Keys the EarthRanger subject serializer copies from `additional` to the
+        # subject's root. NULL when the key is missing, is JSON null, or the query
+        # opts out via `include_subject_promoted_fields`.
+        ("subject_sex", pa.string()),
+        ("subject_region", pa.string()),
+        ("subject_country", pa.string()),
+        ("subject_species", pa.string()),
     ],
 )
 OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
@@ -57,6 +65,12 @@ OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1 = pa.schema(
         ("extra__subject__additional", pa.string()),
         ("extra__source", pa.string()),
         ("junk_status", pa.bool_()),
+        # The promoted `subject_<key>` columns. ecoscope strips the `extra__` prefix,
+        # giving `subject__sex` etc. -- the names the EarthRanger API path uses.
+        ("extra__subject__sex", pa.string()),
+        ("extra__subject__region", pa.string()),
+        ("extra__subject__country", pa.string()),
+        ("extra__subject__species", pa.string()),
     ]
 )
 
@@ -393,7 +407,13 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
     """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
 
     junk_status = pa.array([False] * earthranger_rb.num_rows, type=pa.bool_())
-    add_junk_status = earthranger_rb.append_column("junk_status", junk_status)
+    # Placed after `source_id`, not appended: the promoted subject columns follow
+    # `junk_status` in the target schema, and the cast below is positional.
+    add_junk_status = earthranger_rb.add_column(
+        earthranger_rb.schema.get_field_index("source_id") + 1,
+        "junk_status",
+        junk_status,
+    )
     renamed = add_junk_status.rename_columns(
         {
             "location": "geometry",
@@ -403,6 +423,10 @@ def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
             "subject_name": "extra__subject__name",
             "subject_subtype_id": "extra__subject__subject_subtype",
             "subject_additional": "extra__subject__additional",
+            "subject_sex": "extra__subject__sex",
+            "subject_region": "extra__subject__region",
+            "subject_country": "extra__subject__country",
+            "subject_species": "extra__subject__species",
         }
     )
     # `subject_id` feeds both `groupby_col` (renamed above) and `extra__subject__id`.
@@ -504,6 +528,10 @@ TRANSFORMS: dict[SchemaChoices, TransformSpec] = {
             "subject_name",
             "subject_subtype_id",
             "subject_additional",
+            "subject_sex",
+            "subject_region",
+            "subject_country",
+            "subject_species",
         ],
         target_schema=OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1,
         pre_cast_fn=_observations_pre_cast,

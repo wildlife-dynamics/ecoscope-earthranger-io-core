@@ -47,6 +47,15 @@ _INCLUDE_SUBJECT_ADDITIONAL_DESCRIPTION = (
 )
 
 
+_INCLUDE_SUBJECT_PROMOTED_FIELDS_DESCRIPTION = (
+    "If True (default), populate `extra__subject__sex`, `extra__subject__region`, "
+    "`extra__subject__country` and `extra__subject__species` from the subject "
+    "`additional` JSON, as EarthRanger exposes them on the subject; a missing key "
+    "is null. If False, the columns are still present in the schema but null, and "
+    "the underlying JSON is not read."
+)
+
+
 _INCLUDE_PAUSES_DESCRIPTION = (
     "If True, include patrol legs flagged as a pause rather than active "
     "patrolling; if False (default), exclude them -- matching EarthRanger, so "
@@ -119,6 +128,10 @@ class ObservationsQuery(_WarehouseQuery):
         default=False,
         description=_INCLUDE_SUBJECT_ADDITIONAL_DESCRIPTION,
     )
+    include_subject_promoted_fields: bool = Field(
+        default=True,
+        description=_INCLUDE_SUBJECT_PROMOTED_FIELDS_DESCRIPTION,
+    )
     exclusion_flags: int | None = Field(
         default=None,
         ge=0,
@@ -145,6 +158,10 @@ class ObservationsQuery(_WarehouseQuery):
             False,
             description=_INCLUDE_SUBJECT_ADDITIONAL_DESCRIPTION,
         ),
+        include_subject_promoted_fields: bool = Query(
+            True,
+            description=_INCLUDE_SUBJECT_PROMOTED_FIELDS_DESCRIPTION,
+        ),
         exclusion_flags: int | None = Query(
             None,
             ge=0,
@@ -166,6 +183,7 @@ class ObservationsQuery(_WarehouseQuery):
             patrols_overlap_daterange=patrols_overlap_daterange,
             include_patrol_details=include_patrol_details,
             include_subject_additional=include_subject_additional,
+            include_subject_promoted_fields=include_subject_promoted_fields,
             exclusion_flags=exclusion_flags,
         )
 

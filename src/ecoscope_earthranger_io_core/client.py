@@ -726,6 +726,7 @@ class ERWarehouseClient(BaseModel):
         query_engine: QueryEngine | None = None,
         filter: int | None = None,
         include_subject_additional: bool = False,
+        include_subject_promoted_fields: bool = True,
     ) -> pa.Table:
         """Get observations for a subject group from EarthRanger Data Warehouse.
 
@@ -743,6 +744,10 @@ class ERWarehouseClient(BaseModel):
                 ``extra__subject__additional``. Defaults to False, in which case the
                 column is present but null and the JSON is not read. Opt in only when
                 a consumer needs it (e.g. the ``rgb`` key for per-subject colouring).
+            include_subject_promoted_fields: Populate ``extra__subject__sex``,
+                ``extra__subject__region``, ``extra__subject__country`` and
+                ``extra__subject__species`` from the subject ``additional`` JSON.
+                Defaults to True; if False the columns are present but null.
 
         Returns:
             PyArrow Table with observations data.
@@ -759,6 +764,7 @@ class ERWarehouseClient(BaseModel):
             subject_group_name=subject_group_name,
             exclusion_flags=filter,
             include_subject_additional=include_subject_additional,
+            include_subject_promoted_fields=include_subject_promoted_fields,
         )
         table = self._run_async(
             self._fetch_observations_arrow(query, query_engine=engine)
@@ -776,6 +782,7 @@ class ERWarehouseClient(BaseModel):
         patrols_overlap_daterange: bool = True,
         query_engine: QueryEngine | None = None,
         filter: int | None = None,
+        include_subject_promoted_fields: bool = True,
     ) -> pa.Table:
         """Get patrol observations filtered by patrol type and status.
 
@@ -791,6 +798,10 @@ class ERWarehouseClient(BaseModel):
                 only patrols starting within that range.
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
+            include_subject_promoted_fields: Populate the promoted
+                ``extra__subject__*`` fields (sex, region, country, species).
+                Only applies when ``include_patrol_details`` is False, since the
+                patrol schema has no such columns. Defaults to True.
 
         Returns:
             PyArrow Table with patrol observations data including patrol metadata.
@@ -809,6 +820,7 @@ class ERWarehouseClient(BaseModel):
             patrols_overlap_daterange=patrols_overlap_daterange,
             include_patrol_details=include_patrol_details,
             exclusion_flags=filter,
+            include_subject_promoted_fields=include_subject_promoted_fields,
         )
         table = self._run_async(
             self._fetch_observations_arrow(query, query_engine=engine)
@@ -1080,6 +1092,7 @@ class ERWarehouseClient(BaseModel):
         sub_page_size: int | None = None,
         query_engine: QueryEngine | None = None,
         filter: int | None = None,
+        include_subject_promoted_fields: bool = True,
     ) -> pa.Table:
         """Get observations for patrols from EarthRanger Data Warehouse.
 
@@ -1090,6 +1103,10 @@ class ERWarehouseClient(BaseModel):
             sub_page_size: Ignored (for interface compatibility).
             query_engine: Backend engine to use. Defaults to the client-level
                 setting (``self.query_engine``).
+            include_subject_promoted_fields: Populate the promoted
+                ``extra__subject__*`` fields (sex, region, country, species).
+                Only applies when ``include_patrol_details`` is False, since the
+                patrol schema has no such columns. Defaults to True.
 
         Returns:
             PyArrow Table with patrol observations data.
@@ -1112,6 +1129,7 @@ class ERWarehouseClient(BaseModel):
             patrol_ids=list(set(patrol_ids)) or None,
             include_patrol_details=include_patrol_details,
             exclusion_flags=filter,
+            include_subject_promoted_fields=include_subject_promoted_fields,
         )
         return self._run_async(
             self._fetch_observations_arrow(query, query_engine=engine)
