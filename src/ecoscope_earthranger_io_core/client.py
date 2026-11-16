@@ -29,13 +29,21 @@ from ecoscope_earthranger_io_core.query import (
 )
 
 
-def _is_warehouse_error(response: httpx.Response) -> bool:
-    """True for a FastAPI ``{"detail": ...}`` body passed through by das."""
+def _is_unknown_key_error(response: httpx.Response) -> bool:
+    """True for a warehouse ``{"detail": ...}`` body passed through by das.
+
+    FastAPI's default ``{"detail": "Not Found"}`` means the route itself is
+    missing on the warehouse, not that the requested key is unknown.
+    """
     try:
         payload = response.json()
     except ValueError:
         return False
-    return isinstance(payload, dict) and "detail" in payload
+    return (
+        isinstance(payload, dict)
+        and "detail" in payload
+        and payload["detail"] != "Not Found"
+    )
 
 
 def _http_detail(response: httpx.Response) -> str | None:
@@ -243,7 +251,6 @@ async def _search_table(
     query: BaseModel,
     headers: dict[str, str] | None = None,
     store_type: QueryEngine | None = None,
-    extra_params: dict | None = None,
 ) -> pa.Table:
     """Read an Arrow IPC stream from a warehouse ``/search`` route.
 
@@ -258,10 +265,9 @@ async def _search_table(
     around 1365 patrol UUIDs the request used to fail client-side, before it
     ever reached the API.
 
-    Response-shaping options (``store_type`` and anything in ``extra_params``)
-    stay in the query string, matching the API's ``/search`` routes. das
-    forwards only a fixed set of query params, so a filter must never travel
-    there.
+    The response-shaping ``store_type`` stays in the query string, matching
+    the API's ``/search`` routes. das forwards only a fixed set of query
+    params, so a filter must never travel there.
 
     Args:
         client: The httpx async client.
@@ -270,17 +276,13 @@ async def _search_table(
         headers: Optional headers to include.
         store_type: Optional store type to pass as a query parameter
             (maps to the DWH API's ``store_type`` param).
-        extra_params: Optional response-shaping flags merged into the query
-            string after ``store_type``.
     """
     params: dict = {}
     if store_type is not None:
         params["store_type"] = store_type
-    if extra_params:
-        params.update(extra_params)
     # mode="json" so datetime fields serialize to ISO strings; the plain dump
     # leaves datetime objects that json= cannot encode.
-    body = query.model_dump(mode="json", exclude_none=True)
+    body = query.model_dump(mode="json", exclude_none=True, exclude={"tenant_domain"})
     async with client.stream(
         "POST",
         route,
@@ -314,7 +316,9 @@ class ERWarehouseClient(BaseModel):
 
     Requests go through the das proxy at ``https://{server}/api/datasets/v1.0``
     (override with ``warehouse_base_url``, used as is), authenticated with the
-    EarthRanger token as ``Authorization: Bearer <token>``. das resolves the
+    EarthRanger token as ``Authorization: Bearer <token>``. The
+    ``warehouse_base_url`` override receives the same Bearer header, so it must
+    point to a trusted das (or test) host. das resolves the
     tenant and the caller's read grants from that token and forwards them to
     the warehouse, so requests carry no ``tenant_domain``. das proxies only the
     POST ``/search`` routes, so every read sends its filters as a JSON body.
@@ -491,17 +495,20 @@ class ERWarehouseClient(BaseModel):
         async with self._httpx_client() as client:
             response = await client.post(
                 route,
-                json=query.model_dump(mode="json", exclude_none=True),
+                json=query.model_dump(
+                    mode="json", exclude_none=True, exclude={"tenant_domain"}
+                ),
                 params=params,
                 headers=self._get_auth_headers(),
                 timeout=600,
             )
             # Only the warehouse's own 404 means an unknown type; a das 404
-            # (``{"status": ...}``) means the route itself is missing.
+            # (``{"status": ...}``) or FastAPI's default "Not Found" means the
+            # route itself is missing.
             if (
                 response.status_code == 404
                 and not_found_hint is not None
-                and _is_warehouse_error(response)
+                and _is_unknown_key_error(response)
             ):
                 raise ValueError(_http_detail(response) or not_found_hint)
             _raise_for_status_with_detail(response)

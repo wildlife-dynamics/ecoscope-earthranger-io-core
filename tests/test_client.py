@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
@@ -6,7 +7,11 @@ import httpx
 import pyarrow as pa
 import pytest
 
-from ecoscope_earthranger_io_core.client import ERWarehouseClient
+from ecoscope_earthranger_io_core.client import (
+    _ERROR_BODY_MAX_CHARS,
+    ERWarehouseClient,
+)
+from ecoscope_earthranger_io_core.query import EventsQuery, PatrolTypeSchemaQuery
 
 DAS_PREFIX = "/api/datasets/v1.0"
 # The only query params das forwards to the warehouse; it drops every other one.
@@ -180,7 +185,28 @@ def test_each_read_posts_a_json_body_to_its_das_route(wire, route) -> None:
     assert isinstance(body, dict)
     assert body.items() >= expected_body.items()
     assert "tenant_domain" not in body
+    assert request.url.params.get("store_type") == "auto"
     assert set(request.url.params) <= DAS_FORWARDED_PARAMS
+
+
+def test_tenant_domain_set_on_the_query_is_never_sent(wire) -> None:
+    client = _client()
+    asyncio.run(
+        client._fetch_events_arrow(EventsQuery(tenant_domain="x", event_type=["fire"]))
+    )
+    asyncio.run(
+        client._fetch_patrol_schema(
+            PatrolTypeSchemaQuery(tenant_domain="x", patrol_type_value="p"),
+            parse_detail_datetimes=False,
+            fmt="arrow",
+        )
+    )
+
+    assert len(wire.requests) == 2
+    for request in wire.requests:
+        body = _body(request)
+        assert "tenant_domain" not in body
+        assert body
 
 
 def test_schema_options_travel_in_forwarded_query_params(wire) -> None:
@@ -266,6 +292,70 @@ def test_schema_404_from_the_warehouse_raises_value_error(wire) -> None:
 
     with pytest.raises(ValueError, match="Patrol type 'x' not found"):
         _client().get_patrol_schema("x")
+
+
+@pytest.mark.parametrize("payload", [{"detail": None}, {"status": "error"}])
+def test_error_message_falls_back_to_the_body_text(wire, payload: dict) -> None:
+    wire.respond_with(lambda request: httpx.Response(400, json=payload))
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        _client().get_events(since=SINCE, until=UNTIL)
+
+    response = exc_info.value.response
+    assert response.status_code == 400
+    assert response.text in str(exc_info.value).splitlines()[0]
+
+
+def test_5xx_text_body_is_shown_truncated(wire) -> None:
+    html = "<html><body>" + "x" * (2 * _ERROR_BODY_MAX_CHARS) + "</body></html>"
+    wire.respond_with(
+        lambda request: httpx.Response(
+            502, text=html, headers={"content-type": "text/html"}
+        )
+    )
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        _client().get_events(since=SINCE, until=UNTIL)
+
+    assert exc_info.value.response.status_code == 502
+    first_line = str(exc_info.value).splitlines()[0]
+    assert html[:_ERROR_BODY_MAX_CHARS] + "..." in first_line
+    assert html[: _ERROR_BODY_MAX_CHARS + 1] not in first_line
+
+
+def test_schema_404_for_a_missing_warehouse_route_raises_http_status_error(
+    wire,
+) -> None:
+    wire.respond_with(lambda request: httpx.Response(404, json={"detail": "Not Found"}))
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        _client().get_patrol_schema("x")
+
+    assert exc_info.value.response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda c: c.get_event_schema("x"),
+        lambda c: c.get_segment_schema(),
+    ],
+    ids=["event_schema", "segment_schema"],
+)
+def test_schema_404_without_a_not_found_hint_raises_http_status_error(
+    wire, call: Callable[[ERWarehouseClient], Any]
+) -> None:
+    wire.respond_with(
+        lambda request: httpx.Response(
+            404, json={"detail": "Event type 'x' not found for this tenant."}
+        )
+    )
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        call(_client())
+
+    assert exc_info.value.response.status_code == 404
+    assert "not found for this tenant" in str(exc_info.value).splitlines()[0]
 
 
 def test_schema_404_from_das_raises_http_status_error(wire) -> None:
