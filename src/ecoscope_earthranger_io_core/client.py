@@ -1,8 +1,6 @@
 import asyncio
-import base64
 import io
 import json
-import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import cached_property
@@ -11,7 +9,7 @@ from urllib.parse import urlparse
 
 import httpx
 import pyarrow as pa
-from pydantic import BaseModel, PrivateAttr, SecretStr, field_validator
+from pydantic import BaseModel, SecretStr, field_validator
 
 from ecoscope_earthranger_io_core.arrow import (
     DETAIL_FLATTEN_PREFIXES,
@@ -31,14 +29,54 @@ from ecoscope_earthranger_io_core.query import (
 )
 
 
+def _is_warehouse_error(response: httpx.Response) -> bool:
+    """True for a FastAPI ``{"detail": ...}`` body passed through by das."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    return isinstance(payload, dict) and "detail" in payload
+
+
 def _http_detail(response: httpx.Response) -> str | None:
-    """Return the API's ``detail`` message from an error response, if any."""
+    """Return the ``detail`` message from a das or a warehouse error response.
+
+    das wraps its own errors as ``{"status": {"code", "message", "detail"}}``
+    and passes warehouse errors through as FastAPI's ``{"detail": ...}``,
+    where ``detail`` is a list of validation errors for a 422.
+    """
     try:
         payload = response.json()
     except ValueError:
         return None
-    detail = payload.get("detail") if isinstance(payload, dict) else None
-    return detail if isinstance(detail, str) else None
+    if not isinstance(payload, dict):
+        return None
+    status = payload.get("status")
+    if "detail" not in payload and isinstance(status, dict):
+        return _format_detail(status.get("detail")) or _format_detail(
+            status.get("message")
+        )
+    return _format_detail(payload.get("detail"))
+
+
+def _format_detail(detail: Any) -> str | None:
+    if isinstance(detail, str):
+        return detail or None
+    if isinstance(detail, list):
+        parts = [_format_validation_error(item) for item in detail]
+        return "; ".join(part for part in parts if part) or None
+    if isinstance(detail, dict):
+        return json.dumps(detail) if detail else None
+    return None
+
+
+def _format_validation_error(item: Any) -> str:
+    if isinstance(item, str):
+        return item
+    if not isinstance(item, dict) or "msg" not in item:
+        return json.dumps(item)
+    loc = ".".join(str(part) for part in item.get("loc") or [])
+    return f"{loc}: {item['msg']}" if loc else str(item["msg"])
 
 
 _ERROR_BODY_MAX_CHARS = 500
@@ -199,54 +237,6 @@ def _assert_typed_type_details(patrols: pa.Table) -> None:
     )
 
 
-async def _get_table(
-    client: httpx.AsyncClient,
-    route: str,
-    query: BaseModel,
-    headers: dict[str, str] | None = None,
-    store_type: QueryEngine | None = None,
-    extra_params: dict | None = None,
-) -> pa.Table:
-    """Fetch Arrow IPC stream from the warehouse API and return as a PyArrow Table.
-
-    Args:
-        client: The httpx async client.
-        route: The API route to call.
-        query: A Pydantic model specifying query parameters.
-        headers: Optional headers to include.
-        store_type: Optional store type to pass as a query parameter
-            (maps to the DWH API's ``store_type`` param).
-        extra_params: Optional response-shaping flags merged into the query
-            string after the query model fields and ``store_type``.
-    """
-    params = query.model_dump(exclude_none=True)
-    if store_type is not None:
-        params["store_type"] = store_type
-    if extra_params:
-        params.update(extra_params)
-    async with client.stream(
-        "GET",
-        route,
-        params=params,
-        headers=headers,
-        timeout=600,
-    ) as response:
-        await _araise_for_status_with_detail(response)
-        sink = io.BytesIO()
-        async for chunk in response.aiter_bytes():
-            sink.write(chunk)
-        sink.seek(0)
-    source = sink.getvalue()
-    if not source:
-        raise ConnectionError(
-            f"Warehouse API stream broke for {route}: "
-            "received an empty response. The API may have crashed or "
-            "the connection was closed unexpectedly."
-        )
-    table = pa.ipc.open_stream(source).read_all()
-    return table
-
-
 async def _search_table(
     client: httpx.AsyncClient,
     route: str,
@@ -257,10 +247,9 @@ async def _search_table(
 ) -> pa.Table:
     """Read an Arrow IPC stream from a warehouse ``/search`` route.
 
-    Like :func:`_get_table`, this fetches data and returns it as a PyArrow
-    Table -- despite issuing a POST, nothing is created or mutated. The
-    warehouse exposes these reads as POST because the filters travel in a JSON
-    body rather than the query string, and a GET body is not routable.
+    Despite issuing a POST, nothing is created or mutated. The warehouse
+    exposes these reads as POST because the filters travel in a JSON body
+    rather than the query string, and a GET body is not routable.
 
     Sending filters in the body means the ones that grow with the result set
     (``patrol_ids``, ``subject_ids``) are no longer bounded by URL length:
@@ -270,7 +259,9 @@ async def _search_table(
     ever reached the API.
 
     Response-shaping options (``store_type`` and anything in ``extra_params``)
-    stay in the query string, matching the API's ``/search`` routes.
+    stay in the query string, matching the API's ``/search`` routes. das
+    forwards only a fixed set of query params, so a filter must never travel
+    there.
 
     Args:
         client: The httpx async client.
@@ -321,11 +312,12 @@ class ERWarehouseClient(BaseModel):
     Implements the EarthRangerClientProtocol interface for use as a drop-in replacement
     for EarthRangerIO / EarthRangerClient in ecoscope-workflows.
 
-    The warehouse API URL is resolved automatically from the EarthRanger status
-    endpoint (``GET https://{server}/api/v1.0/status``), or can be overridden
-    explicitly via ``warehouse_base_url``. Requests to the warehouse API are
-    authenticated with both the EarthRanger API token and a Google Cloud ID token
-    obtained via Application Default Credentials.
+    Requests go through the das proxy at ``https://{server}/api/datasets/v1.0``
+    (override with ``warehouse_base_url``, used as is), authenticated with the
+    EarthRanger token as ``Authorization: Bearer <token>``. das resolves the
+    tenant and the caller's read grants from that token and forwards them to
+    the warehouse, so requests carry no ``tenant_domain``. das proxies only the
+    POST ``/search`` routes, so every read sends its filters as a JSON body.
 
     Example:
         >>> from pydantic import SecretStr
@@ -361,17 +353,13 @@ class ERWarehouseClient(BaseModel):
     warehouse_patrol_types_endpoint: str = "/patrol_types"
     query_engine: QueryEngine = "auto"
 
-    _resolved_base_url: str | None = PrivateAttr(default=None)
-    _cached_id_token: SecretStr | None = PrivateAttr(default=None)
-    _id_token_expiry: float = PrivateAttr(default=0.0)
-
     @field_validator("server", mode="before")
     @classmethod
     def _normalize_server(cls, v: str) -> str:
         """Normalize ``server`` to ``host[:port]``.
 
         Strips scheme, path, query, and fragment so that downstream
-        interpolation into ``https://{server}/api/v1.0/...`` always yields a
+        interpolation into ``https://{server}/api/datasets/v1.0`` always yields a
         well-formed URL, regardless of how the caller supplied the value.
         """
         if not isinstance(v, str) or not v.strip():
@@ -401,117 +389,17 @@ class ERWarehouseClient(BaseModel):
             )
         return self.token
 
-    async def _resolve_warehouse_url(self) -> str:
-        """Resolve and cache the warehouse API base URL.
-
-        If ``warehouse_base_url`` was provided at construction time it is
-        returned immediately.  Otherwise the URL is fetched from the
-        EarthRanger status endpoint and cached for the lifetime of this
-        client instance.
-
-        Returns:
-            The warehouse API base URL.
-
-        Raises:
-            KeyError: If the status response is missing ``dwh_settings``
-                or ``api_url``.
-            ValueError: If ``api_url`` is present but empty.
-            httpx.HTTPStatusError: If the status endpoint returns an error.
-        """
-        if self.warehouse_base_url:
-            return self.warehouse_base_url
-        if self._resolved_base_url:
-            return self._resolved_base_url
-
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"https://{self.server}/api/v1.0/status",
-                timeout=30.0,
-            )
-            _raise_for_status_with_detail(response)
-            data = response.json()
-
-        try:
-            api_url: str = data["data"]["dwh_settings"]["api_url"]
-        except KeyError as exc:
-            raise KeyError(
-                "Status response from "
-                f"https://{self.server}/api/v1.0/status "
-                "is missing 'data.dwh_settings.api_url'"
-            ) from exc
-
-        if not api_url:
-            raise ValueError(
-                "Status response from "
-                f"https://{self.server}/api/v1.0/status "
-                "returned an empty 'data.dwh_settings.api_url'"
-            )
-
-        self._resolved_base_url = api_url
-        return api_url
-
-    def _get_id_token(self, audience: str) -> SecretStr:
-        """Return a Google Cloud ID token for *audience*, with caching.
-
-        Uses Application Default Credentials so it works transparently
-        with user credentials locally (``gcloud auth application-default
-        login``) and with service-account or metadata-server credentials
-        in cloud environments.
-
-        Args:
-            audience: The target audience (the warehouse API domain).
-
-        Returns:
-            A ``SecretStr``-wrapped Google ID token.
-        """
-        if self._cached_id_token and time.time() < self._id_token_expiry - 300:
-            return self._cached_id_token
-
-        from google.auth.transport.requests import (  # type: ignore[import-untyped]
-            Request,
-        )
-        from google.oauth2 import id_token  # type: ignore[import-untyped]
-
-        raw_token: str = id_token.fetch_id_token(Request(), audience)
-
-        payload = raw_token.split(".")[1]
-        padding = 4 - len(payload) % 4
-        if padding != 4:
-            payload += "=" * padding
-        claims = json.loads(base64.urlsafe_b64decode(payload))
-        self._id_token_expiry = float(claims.get("exp", 0))
-
-        self._cached_id_token = SecretStr(raw_token)
-        return self._cached_id_token
+    @property
+    def _base_url(self) -> str:
+        return self.warehouse_base_url or f"https://{self.server}/api/datasets/v1.0"
 
     @asynccontextmanager
     async def _httpx_client(self):
-        base_url = await self._resolve_warehouse_url()
-        async with httpx.AsyncClient(base_url=base_url) as client:
+        async with httpx.AsyncClient(base_url=self._base_url) as client:
             yield client
 
     def _get_auth_headers(self) -> dict[str, str]:
-        """Return authentication headers for API requests.
-
-        Includes the EarthRanger API token and a Google Cloud ID token
-        for authenticating to the private Cloud Run warehouse service.
-        """
-        base_url = self.warehouse_base_url or self._resolved_base_url
-        if not base_url:
-            raise RuntimeError(
-                "Warehouse base URL has not been resolved yet. "
-                "Ensure _httpx_client() is entered before calling "
-                "_get_auth_headers()."
-            )
-        audience = urlparse(base_url).hostname
-        if not audience:
-            raise ValueError(
-                f"Could not extract a valid hostname from warehouse URL: {base_url!r}"
-            )
-        return {
-            "X-EarthRanger-API-Token": self._token.get_secret_value(),
-            "Authorization": f"Bearer {self._get_id_token(audience).get_secret_value()}",
-        }
+        return {"Authorization": f"Bearer {self._token.get_secret_value()}"}
 
     async def _fetch_observations_arrow(
         self,
@@ -568,9 +456,9 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch event types as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _get_table(
+            table = await _search_table(
                 client=client,
-                route=self.warehouse_event_types_endpoint,
+                route=f"{self.warehouse_event_types_endpoint}/search",
                 query=query,
                 headers=self._get_auth_headers(),
                 store_type=query_engine,
@@ -597,19 +485,24 @@ class ERWarehouseClient(BaseModel):
         type surfaces as a ValueError the caller can read rather than a bare
         HTTP status.
         """
-        params = query.model_dump(exclude_none=True)
-        params["store_type"] = query_engine
-        params["format"] = fmt
+        params: dict[str, Any] = {"store_type": query_engine, "format": fmt}
         if parse_detail_datetimes:
             params["parse_detail_datetimes"] = True
         async with self._httpx_client() as client:
-            response = await client.get(
+            response = await client.post(
                 route,
+                json=query.model_dump(mode="json", exclude_none=True),
                 params=params,
                 headers=self._get_auth_headers(),
                 timeout=600,
             )
-            if response.status_code == 404 and not_found_hint is not None:
+            # Only the warehouse's own 404 means an unknown type; a das 404
+            # (``{"status": ...}``) means the route itself is missing.
+            if (
+                response.status_code == 404
+                and not_found_hint is not None
+                and _is_warehouse_error(response)
+            ):
                 raise ValueError(_http_detail(response) or not_found_hint)
             _raise_for_status_with_detail(response)
             if fmt == "json":
@@ -624,9 +517,9 @@ class ERWarehouseClient(BaseModel):
         fmt: Literal["arrow", "json"],
         query_engine: QueryEngine = "auto",
     ) -> "pa.Schema | dict[str, Any]":
-        """Fetch the event_details schema from the /events/schema endpoint."""
+        """Fetch the event_details schema from /events/search/schema."""
         return await self._fetch_details_schema(
-            f"{self.warehouse_events_endpoint}/schema",
+            f"{self.warehouse_events_endpoint}/search/schema",
             query,
             parse_detail_datetimes=parse_detail_datetimes,
             fmt=fmt,
@@ -640,9 +533,9 @@ class ERWarehouseClient(BaseModel):
     ) -> pa.Table:
         """Internal async method to fetch patrol types as Arrow table."""
         async with self._httpx_client() as client:
-            table = await _get_table(
+            table = await _search_table(
                 client=client,
-                route=self.warehouse_patrol_types_endpoint,
+                route=f"{self.warehouse_patrol_types_endpoint}/search",
                 query=query,
                 headers=self._get_auth_headers(),
                 store_type=query_engine,
@@ -657,16 +550,15 @@ class ERWarehouseClient(BaseModel):
         fmt: Literal["arrow", "json"],
         query_engine: QueryEngine = "auto",
     ) -> "pa.Schema | dict[str, Any]":
-        """Fetch one patrol type's type_details schema from /patrols/schema."""
+        """Fetch one patrol type's type_details schema."""
         return await self._fetch_details_schema(
-            f"{self.warehouse_patrols_endpoint}/schema",
+            f"{self.warehouse_patrols_endpoint}/search/schema",
             query,
             parse_detail_datetimes=parse_detail_datetimes,
             fmt=fmt,
             query_engine=query_engine,
             not_found_hint=(
-                f"Patrol type {query.patrol_type_value!r} not found for "
-                f"tenant {self.server!r}."
+                f"Patrol type {query.patrol_type_value!r} not found for this site."
             ),
         )
 
@@ -678,13 +570,13 @@ class ERWarehouseClient(BaseModel):
         fmt: Literal["arrow", "json"],
         query_engine: QueryEngine = "auto",
     ) -> "pa.Schema | dict[str, Any]":
-        """Fetch the tenant's segment_details schema from /patrols/segments/schema.
+        """Fetch the tenant's segment_details schema.
 
         There is one segment schema per tenant, so this has no "not found"
         case: a site that never authored one yields an empty struct.
         """
         return await self._fetch_details_schema(
-            f"{self.warehouse_patrols_endpoint}/segments/schema",
+            f"{self.warehouse_patrols_endpoint}/search/segments/schema",
             query,
             parse_detail_datetimes=parse_detail_datetimes,
             fmt=fmt,
@@ -758,7 +650,6 @@ class ERWarehouseClient(BaseModel):
 
         engine = query_engine or self.query_engine
         query = ObservationsQuery(
-            tenant_domain=self.server,
             range_start=datetime.fromisoformat(since),
             range_end=datetime.fromisoformat(until),
             subject_group_name=subject_group_name,
@@ -812,7 +703,6 @@ class ERWarehouseClient(BaseModel):
 
         engine = query_engine or self.query_engine
         query = ObservationsQuery(
-            tenant_domain=self.server,
             range_start=datetime.fromisoformat(since),
             range_end=datetime.fromisoformat(until),
             patrol_type_value=patrol_type_value,
@@ -871,7 +761,6 @@ class ERWarehouseClient(BaseModel):
         """
         engine = query_engine or self.query_engine
         query = PatrolsQuery(
-            tenant_domain=self.server,
             range_start=datetime.fromisoformat(since),
             range_end=datetime.fromisoformat(until),
             patrol_type_value=patrol_type_value,
@@ -953,7 +842,6 @@ class ERWarehouseClient(BaseModel):
         )
         engine = query_engine or self.query_engine
         query = PatrolsQuery(
-            tenant_domain=self.server,
             range_start=datetime.fromisoformat(since) if since else None,
             range_end=datetime.fromisoformat(until) if until else None,
             patrol_type_value=patrol_type_value,
@@ -1120,7 +1008,6 @@ class ERWarehouseClient(BaseModel):
             patrol_ids = patrols_df["id"].tolist()
 
         query = ObservationsQuery(
-            tenant_domain=self.server,
             # ``or None`` so an empty patrols_df sends no patrol_ids at all.
             # ``exclude_none`` drops None but keeps [], and a JSON body carries
             # the empty list through where a query string dropped it -- an
@@ -1247,7 +1134,6 @@ class ERWarehouseClient(BaseModel):
         # shared EventsQuery (single source of truth): event_details is included
         # when typed OR raw; raw_details picks the flat-JSON format.
         query = EventsQuery(
-            tenant_domain=self.server,
             range_start=datetime.fromisoformat(since) if since else None,
             range_end=datetime.fromisoformat(until) if until else None,
             event_type=event_type or None,
@@ -1280,7 +1166,7 @@ class ERWarehouseClient(BaseModel):
             is_collection).
         """
         engine = query_engine or self.query_engine
-        query = EventTypesQuery(tenant_domain=self.server)
+        query = EventTypesQuery()
         return self._run_async(
             self._fetch_event_types_arrow(query, query_engine=engine)
         )
@@ -1315,10 +1201,10 @@ class ERWarehouseClient(BaseModel):
     ) -> "pa.Schema | dict[str, Any]":
         """Discover the typed ``event_details`` schema for one event type.
 
-        Reads the warehouse ``/events/schema`` discovery endpoint, which serves
-        exactly one event type. This is a convenience for introspecting the
-        ``event_details`` struct shape ahead of streaming; the same struct is
-        embedded in ``/events/stream/arrow`` responses in typed mode, so this
+        Reads the warehouse ``/events/search/schema`` discovery endpoint,
+        which serves exactly one event type. This is a convenience for
+        introspecting the ``event_details`` struct shape ahead of streaming;
+        the same struct is embedded in events responses in typed mode, so this
         call is not required to consume events.
 
         Args:
@@ -1338,7 +1224,7 @@ class ERWarehouseClient(BaseModel):
             (format="json").
         """
         engine = query_engine or self.query_engine
-        query = EventTypeSchemaQuery(tenant_domain=self.server, event_type=event_type)
+        query = EventTypeSchemaQuery(event_type=event_type)
         return self._run_async(
             self._fetch_event_schema(
                 query,
@@ -1368,7 +1254,7 @@ class ERWarehouseClient(BaseModel):
             (id, value, display, ordernum, is_active).
         """
         engine = query_engine or self.query_engine
-        query = PatrolTypesQuery(tenant_domain=self.server)
+        query = PatrolTypesQuery()
         return self._run_async(
             self._fetch_patrol_types_arrow(query, query_engine=engine)
         )
@@ -1403,9 +1289,10 @@ class ERWarehouseClient(BaseModel):
     ) -> "pa.Schema | dict[str, Any]":
         """Discover the typed ``type_details`` schema for one patrol type.
 
-        Reads the warehouse ``/patrols/schema`` discovery endpoint, the patrol
-        counterpart of ``/events/schema``, which serves exactly one patrol type
-        because ``type_details`` is derived from that type's JSON-Schema. The
+        Reads the warehouse ``/patrols/search/schema`` discovery endpoint, the
+        patrol counterpart of ``/events/search/schema``, which serves exactly
+        one patrol type because ``type_details`` is derived from that type's
+        JSON-Schema. The
         same struct is embedded in patrol responses in typed mode, so this call
         is not required to consume patrols.
 
@@ -1430,9 +1317,7 @@ class ERWarehouseClient(BaseModel):
             ValueError: If the patrol type is unknown for this tenant.
         """
         engine = query_engine or self.query_engine
-        query = PatrolTypeSchemaQuery(
-            tenant_domain=self.server, patrol_type_value=patrol_type
-        )
+        query = PatrolTypeSchemaQuery(patrol_type_value=patrol_type)
         return self._run_async(
             self._fetch_patrol_schema(
                 query,
@@ -1488,7 +1373,7 @@ class ERWarehouseClient(BaseModel):
             an empty struct rather than an error.
         """
         engine = query_engine or self.query_engine
-        query = SegmentSchemaQuery(tenant_domain=self.server)
+        query = SegmentSchemaQuery()
         return self._run_async(
             self._fetch_segment_schema(
                 query,

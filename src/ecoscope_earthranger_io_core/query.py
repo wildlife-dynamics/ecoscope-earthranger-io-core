@@ -8,11 +8,15 @@ QueryEngine = Literal["auto", "iceberg-bq", "iceberg-dd"]
 
 
 class _TenantQuery(BaseModel):
-    """Base for any tenant-scoped warehouse query. ``tenant_domain`` is the
-    user-facing input; the API resolves it to an internal ``tenant_id`` on a
-    subclass."""
+    """Base for any tenant-scoped warehouse query.
 
-    tenant_domain: str
+    ``tenant_domain`` is optional because das sets the tenant itself when it
+    proxies a ``/search`` request. The API's legacy GET routes bind it as a
+    required query param. The API resolves the tenant to an internal
+    ``tenant_id`` on a subclass.
+    """
+
+    tenant_domain: str | None = None
 
 
 class _WarehouseQuery(_TenantQuery):

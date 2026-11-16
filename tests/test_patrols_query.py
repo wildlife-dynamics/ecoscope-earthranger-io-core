@@ -1,3 +1,5 @@
+import inspect
+
 import pytest
 from pydantic import ValidationError
 
@@ -118,8 +120,23 @@ def test_segment_schema_query_is_keyed_only_by_tenant():
 
 
 @pytest.mark.parametrize(
+    "model, fields",
+    [
+        (PatrolTypesQuery, {}),
+        (PatrolTypeSchemaQuery, {"patrol_type_value": "routine_patrol"}),
+        (SegmentSchemaQuery, {}),
+    ],
+)
+def test_schema_queries_take_no_tenant_in_the_body(model, fields):
+    """das sets the tenant itself, so a /search body carries none."""
+    assert "tenant_domain" not in model(**fields).model_dump(exclude_none=True)
+
+
+@pytest.mark.parametrize(
     "model", [PatrolTypesQuery, PatrolTypeSchemaQuery, SegmentSchemaQuery]
 )
-def test_schema_queries_require_a_tenant(model):
-    with pytest.raises(ValidationError):
-        model()
+def test_schema_query_params_still_require_a_tenant(model):
+    """Legacy GET callers of from_query_params have no das in front of them
+    to supply the tenant."""
+    param = inspect.signature(model.from_query_params).parameters["tenant_domain"]
+    assert param.default.is_required()
