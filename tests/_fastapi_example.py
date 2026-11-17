@@ -4,7 +4,7 @@ from typing import Literal
 
 import geoarrow.pyarrow as ga  # type: ignore[import-untyped]
 import pyarrow as pa
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ecoscope_earthranger_io_core.arrow import (
@@ -246,6 +246,7 @@ def _build_patrols_with_events_record_batch(
 
 def _patrols_details_shape(
     query: PatrolsQuery,
+    tenant: str,
 ) -> tuple[pa.Schema, object, object]:
     """Pick the response's detail shape and values for this query.
 
@@ -264,8 +265,8 @@ def _patrols_details_shape(
     # tenants model that: one with no schemas at all, and one whose site-wide
     # segment schema has fields while its patrol types' schemas do not -- the
     # case that separates the two detail columns.
-    no_schemas = "no-schemas.pamdas.org" in query.tenant_domain
-    no_type_schema = "no-type-schema.pamdas.org" in query.tenant_domain
+    no_schemas = "no-schemas.pamdas.org" in tenant
+    no_type_schema = "no-type-schema.pamdas.org" in tenant
     segment_details_type = (
         None
         if no_schemas
@@ -297,15 +298,21 @@ def _patrols_details_shape(
 
 @patrols.get("/stream/arrow")
 async def get_patrols_streaming_arrow(
+    request: Request,
     query: PatrolsQuery = Depends(PatrolsQuery.from_query_params),
     store_type: QueryEngine | None = Query(None),
 ):
     """Stream patrols as an Arrow IPC stream."""
+    # Through das the body has no tenant_domain; das serves on the tenant's
+    # own host, so the Host header stands in for it.
+    tenant = query.tenant_domain or request.url.hostname or ""
 
     async def generate_arrow_bytes():
         """Generate Arrow IPC stream bytes."""
         if query.include_events:
-            schema, segment_details, type_details = _patrols_details_shape(query)
+            schema, segment_details, type_details = _patrols_details_shape(
+                query, tenant
+            )
             sink = pa.BufferOutputStream()
             writer = pa.ipc.new_stream(sink, schema)
             try:
@@ -340,11 +347,14 @@ async def get_patrols_streaming_arrow(
 
 @patrols.post("/search/stream/arrow")
 async def search_patrols_streaming_arrow(
+    request: Request,
     query: PatrolsQuery,
     store_type: QueryEngine | None = Query(None),
 ):
     """POST twin of the GET route: filters arrive as a JSON body."""
-    return await get_patrols_streaming_arrow(query=query, store_type=store_type)
+    return await get_patrols_streaming_arrow(
+        request=request, query=query, store_type=store_type
+    )
 
 
 # Canned patrol schema documents. The real API derives these structs from the
@@ -410,6 +420,18 @@ async def get_patrol_type_schema(
     )
 
 
+@patrols.post("/search/schema")
+async def search_patrol_type_schema(
+    query: PatrolTypeSchemaQuery,
+    parse_detail_datetimes: bool = Query(False),
+    format: Literal["arrow", "json"] = Query("arrow"),
+):
+    """POST twin of the GET route: the patrol type arrives in a JSON body."""
+    return await get_patrol_type_schema(
+        query=query, parse_detail_datetimes=parse_detail_datetimes, format=format
+    )
+
+
 @patrols.get("/segments/schema")
 async def get_segment_schema(
     query: SegmentSchemaQuery = Depends(SegmentSchemaQuery.from_query_params),
@@ -425,6 +447,18 @@ async def get_segment_schema(
         .serialize()
         .to_pybytes(),
         media_type="application/vnd.apache.arrow.schema",
+    )
+
+
+@patrols.post("/search/segments/schema")
+async def search_segment_schema(
+    query: SegmentSchemaQuery,
+    parse_detail_datetimes: bool = Query(False),
+    format: Literal["arrow", "json"] = Query("arrow"),
+):
+    """POST twin of the GET route."""
+    return await get_segment_schema(
+        query=query, parse_detail_datetimes=parse_detail_datetimes, format=format
     )
 
 
@@ -550,6 +584,22 @@ async def get_event_type_schema(
     )
 
 
+@events.post("/search/schema")
+async def search_event_type_schema(
+    query: EventTypeSchemaQuery,
+    store_type: QueryEngine | None = Query(None),
+    parse_detail_datetimes: bool = Query(False),
+    format: Literal["arrow", "json"] = Query("arrow"),
+):
+    """POST twin of the GET route: the event type arrives in a JSON body."""
+    return await get_event_type_schema(
+        query=query,
+        store_type=store_type,
+        parse_detail_datetimes=parse_detail_datetimes,
+        format=format,
+    )
+
+
 app.include_router(events)
 
 # Event types router
@@ -610,6 +660,15 @@ async def get_event_types_streaming_arrow(
         raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
 
 
+@event_types.post("/event_types/search")
+async def search_event_types_streaming_arrow(
+    query: EventTypesQuery,
+    store_type: QueryEngine | None = Query(None),
+):
+    """POST twin of the GET route."""
+    return await get_event_types_streaming_arrow(query=query, store_type=store_type)
+
+
 app.include_router(event_types)
 
 
@@ -661,6 +720,15 @@ async def get_patrol_types_streaming_arrow(
         generate_arrow_bytes(),
         media_type="application/vnd.apache.arrow.stream",
     )
+
+
+@patrol_types.post("/patrol_types/search")
+async def search_patrol_types_streaming_arrow(
+    query: PatrolTypesQuery,
+    store_type: QueryEngine | None = Query(None),
+):
+    """POST twin of the GET route."""
+    return await get_patrol_types_streaming_arrow(query=query, store_type=store_type)
 
 
 app.include_router(patrol_types)

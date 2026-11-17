@@ -4,11 +4,9 @@ import json
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime
 from typing import AsyncIterable, Callable
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import httpx
-
-from pydantic import SecretStr
 
 import pyarrow as pa
 import pytest
@@ -25,7 +23,6 @@ from ecoscope_earthranger_io_core.arrow import (
 )
 from ecoscope_earthranger_io_core.client import (
     ERWarehouseClient,
-    _get_table,
     _search_table,
 )
 from ecoscope_earthranger_io_core.query import ObservationsQuery
@@ -36,34 +33,14 @@ RecordBatchGeneratorGetter = Callable[
     [ObservationsQuery], Callable[[], AsyncIterable[pa.RecordBatch]]
 ]
 
-MOCK_STATUS_RESPONSE = {
-    "data": {
-        "dwh_settings": {
-            "api_url": "https://warehouse-api-dev-123.europe-west3.run.app"
-        },
-    },
-    "status": {"code": 200, "message": "OK"},
-}
-
 
 @pytest.fixture
 def app():
     return _app
 
 
-@pytest.fixture(autouse=True)
-def _mock_id_token():
-    """Patch _get_id_token for all tests so Google credentials are not required."""
-    with patch.object(
-        ERWarehouseClient,
-        "_get_id_token",
-        return_value=SecretStr("mock-id-token"),
-    ):
-        yield
-
-
 @pytest.mark.asyncio
-async def test__get_table(app: FastAPI, nrecords: int) -> None:
+async def test__search_table(app: FastAPI, nrecords: int) -> None:
     query = ObservationsQuery(
         tenant_domain="some-site.pamdas.org",
         subject_ids=["subject1", "subject2"],
@@ -74,9 +51,9 @@ async def test__get_table(app: FastAPI, nrecords: int) -> None:
         transport=ASGITransport(app),
         base_url="http://test",
     ) as client:
-        table = await _get_table(
+        table = await _search_table(
             client=client,
-            route="/observations/stream/arrow",
+            route="/observations/search/stream/arrow",
             query=query,
         )
     # TODO:
@@ -87,8 +64,8 @@ async def test__get_table(app: FastAPI, nrecords: int) -> None:
 
 
 @pytest.mark.asyncio
-async def test__get_table_with_subject_group(app: FastAPI, nrecords: int) -> None:
-    """Test _get_table with subject_group_name instead of subject_ids."""
+async def test__search_table_with_subject_group(app: FastAPI, nrecords: int) -> None:
+    """Test _search_table with subject_group_name instead of subject_ids."""
     query = ObservationsQuery(
         tenant_domain="some-site.pamdas.org",
         subject_group_name="elephants",
@@ -99,9 +76,9 @@ async def test__get_table_with_subject_group(app: FastAPI, nrecords: int) -> Non
         transport=ASGITransport(app),
         base_url="http://test",
     ) as client:
-        table = await _get_table(
+        table = await _search_table(
             client=client,
-            route="/observations/stream/arrow",
+            route="/observations/search/stream/arrow",
             query=query,
         )
     assert isinstance(table, pa.Table)
@@ -110,39 +87,9 @@ async def test__get_table_with_subject_group(app: FastAPI, nrecords: int) -> Non
 
 
 @pytest.mark.asyncio
-async def test__get_table_raises_on_empty_stream() -> None:
-    """Test that _get_table raises ConnectionError when the stream is empty."""
-    query = ObservationsQuery(
-        tenant_domain="some-site.pamdas.org",
-        subject_ids=["subject1"],
-        range_start=datetime(2023, 1, 1),
-        range_end=datetime(2023, 12, 31),
-    )
-
-    async def empty_response(scope, receive, send):
-        await send({"type": "http.response.start", "status": 200, "headers": []})
-        await send({"type": "http.response.body", "body": b""})
-
-    async with AsyncClient(
-        transport=ASGITransport(empty_response),
-        base_url="http://test",
-    ) as client:
-        with pytest.raises(ConnectionError, match="stream broke"):
-            await _get_table(
-                client=client,
-                route="/observations/stream/arrow",
-                query=query,
-            )
-
-
-@pytest.mark.asyncio
 async def test__search_table_raises_on_empty_stream() -> None:
-    """Same guard as the GET helper, on the path that now serves the reads.
-
-    All three Arrow endpoints go through ``_search_table``; ``_get_table``
-    only serves ``/event_types``. An empty body must surface as a clear
-    ConnectionError rather than a pyarrow parse error.
-    """
+    """An empty body must surface as a clear ConnectionError rather than a
+    pyarrow parse error."""
     query = ObservationsQuery(
         tenant_domain="some-site.pamdas.org",
         subject_ids=["subject1"],
@@ -722,11 +669,12 @@ def test_client_get_patrol_events_event_type_filter(app: FastAPI) -> None:
 
 
 def _events_mock_httpx_client(app: FastAPI):
+    # The host is the tenant, as with das, so the mock app can tell tenants apart.
     @asynccontextmanager
     async def _mock_httpx_client(self):
         async with AsyncClient(
             transport=ASGITransport(app),
-            base_url="http://test",
+            base_url=f"http://{self.server}",
         ) as mock_httpx_client:
             yield mock_httpx_client
 
@@ -1176,101 +1124,6 @@ def test_client_get_event_type_display_names_not_implemented() -> None:
 # -------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_resolve_warehouse_url_from_status() -> None:
-    """Test that the warehouse URL is resolved from the status endpoint."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = MOCK_STATUS_RESPONSE
-    mock_response.raise_for_status.return_value = None
-
-    er_client = ERWarehouseClient(
-        server="some-site.pamdas.org",
-        token="abc",
-    )
-
-    mock_ctx = AsyncMock()
-    mock_ctx.get.return_value = mock_response
-
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_instance = AsyncMock()
-        mock_instance.__aenter__.return_value = mock_ctx
-        mock_instance.__aexit__.return_value = False
-        mock_client_cls.return_value = mock_instance
-
-        url = await er_client._resolve_warehouse_url()
-
-    assert url == "https://warehouse-api-dev-123.europe-west3.run.app"
-    assert er_client._resolved_base_url == url
-
-
-@pytest.mark.asyncio
-async def test_resolve_warehouse_url_caches_result() -> None:
-    """Test that repeated calls return the cached URL without extra HTTP calls."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = MOCK_STATUS_RESPONSE
-    mock_response.raise_for_status.return_value = None
-
-    er_client = ERWarehouseClient(
-        server="some-site.pamdas.org",
-        token="abc",
-    )
-
-    mock_ctx = AsyncMock()
-    mock_ctx.get.return_value = mock_response
-
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_instance = AsyncMock()
-        mock_instance.__aenter__.return_value = mock_ctx
-        mock_instance.__aexit__.return_value = False
-        mock_client_cls.return_value = mock_instance
-
-        url1 = await er_client._resolve_warehouse_url()
-        url2 = await er_client._resolve_warehouse_url()
-
-    assert url1 == url2
-    mock_ctx.get.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_resolve_warehouse_url_override_skips_status() -> None:
-    """Test that an explicit warehouse_base_url skips the status endpoint."""
-    er_client = ERWarehouseClient(
-        server="some-site.pamdas.org",
-        token="abc",
-        warehouse_base_url="https://my-override.example.com",
-    )
-
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        url = await er_client._resolve_warehouse_url()
-
-    assert url == "https://my-override.example.com"
-    mock_client_cls.assert_not_called()
-
-
-def test_get_auth_headers_includes_both_tokens() -> None:
-    """Test that auth headers include both ER token and Google ID token."""
-    er_client = ERWarehouseClient(
-        server="some-site.pamdas.org",
-        token="abc",
-        warehouse_base_url="https://warehouse.example.com",
-    )
-    headers = er_client._get_auth_headers()
-
-    assert headers["X-EarthRanger-API-Token"] == "abc"
-    assert headers["Authorization"] == "Bearer mock-id-token"
-
-
-def test_get_auth_headers_raises_on_invalid_warehouse_url() -> None:
-    """Test that _get_auth_headers raises ValueError when hostname cannot be extracted."""
-    er_client = ERWarehouseClient(
-        server="some-site.pamdas.org",
-        token="abc",
-        warehouse_base_url="not-a-url",
-    )
-    with pytest.raises(ValueError, match="Could not extract a valid hostname"):
-        er_client._get_auth_headers()
-
-
 def test_warehouse_base_url_is_optional() -> None:
     """Test that ERWarehouseClient can be constructed without warehouse_base_url."""
     er_client = ERWarehouseClient(
@@ -1686,7 +1539,7 @@ def test_observations_filters_travel_in_the_body_not_the_url(app: FastAPI) -> No
     body = captured["body"]
     assert body["subject_group_name"] == "Ecoscope"
     assert body["range_start"] == "2015-01-01T12:00:00"
-    assert body["tenant_domain"] == "some-site.pamdas.org"
+    assert "tenant_domain" not in body
     # Response shaping stays in the query string; filters must not appear there.
     assert captured["query_params"] == {"store_type": "auto"}
 
@@ -2091,19 +1944,20 @@ def test_patrol_types_threads_the_query_engine(app: FastAPI) -> None:
     assert captured["params"]["store_type"] == "iceberg-dd"
 
 
-def test_patrol_schema_404_without_a_json_body_still_names_the_type() -> None:
-    """A 404 whose body is not JSON falls back to the client's own message."""
+def test_patrol_schema_404_without_a_json_body_is_an_http_error() -> None:
+    """A non-JSON 404 is not the warehouse's "unknown type", so it stays an HTTP error."""
     app = FastAPI()
 
-    @app.get("/patrols/schema")
+    @app.post("/patrols/search/schema")
     async def _schema():
         return Response(content="upstream down", status_code=404)
 
     with patch.object(
         ERWarehouseClient, "_httpx_client", _events_mock_httpx_client(app)
     ):
-        with pytest.raises(ValueError, match="routine_patrol"):
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
             _client().get_patrol_schema("routine_patrol")
+    assert exc_info.value.response.status_code == 404
 
 
 def test_typed_type_details_rejects_a_typed_segment_but_untyped_type(
@@ -2194,14 +2048,13 @@ def _observations_query() -> ObservationsQuery:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fetch", [_get_table, _search_table])
-async def test_stream_error_includes_api_detail(fetch) -> None:
+async def test_stream_error_includes_api_detail() -> None:
     app = _json_error_app(422, {"detail": _SUBJECT_GROUP_DETAIL})
     async with AsyncClient(
         transport=ASGITransport(app), base_url="http://test"
     ) as client:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await fetch(
+            await _search_table(
                 client=client,
                 route="/observations/search/stream/arrow",
                 query=_observations_query(),
@@ -2216,8 +2069,8 @@ async def test_stream_error_includes_api_detail(fetch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_error_with_list_detail_falls_back_to_truncated_body() -> None:
-    """FastAPI validation errors carry a list ``detail``; show the raw body."""
+async def test_stream_error_with_list_detail_is_truncated() -> None:
+    """FastAPI validation errors carry a list ``detail``; show each message."""
     payload = {
         "detail": [
             {"loc": ["body", "subject_ids", i], "msg": "bad id", "type": "x"}
@@ -2236,7 +2089,7 @@ async def test_stream_error_with_list_detail_falls_back_to_truncated_body() -> N
             )
     summary = str(exc_info.value).splitlines()[0]
     assert exc_info.value.response.status_code == 422
-    assert ': {"detail": [{"loc": ["body", "subject_ids", 0]' in summary
+    assert ": body.subject_ids.0: bad id; body.subject_ids.1: bad id" in summary
     assert summary.endswith("...")
     detail = summary.split(": ", 1)[1]
     assert len(detail) == 500 + len("...")
@@ -2249,9 +2102,9 @@ async def test_stream_error_with_non_json_body_uses_body_text() -> None:
         transport=ASGITransport(app), base_url="http://test"
     ) as client:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await _get_table(
+            await _search_table(
                 client=client,
-                route="/event_types",
+                route="/event_types/search",
                 query=_observations_query(),
             )
     assert exc_info.value.response.status_code == 500
@@ -2294,7 +2147,7 @@ def test_client_surfaces_api_detail_from_observations() -> None:
 def test_schema_error_other_than_404_includes_api_detail() -> None:
     app = FastAPI()
 
-    @app.get("/patrols/schema")
+    @app.post("/patrols/search/schema")
     async def _schema():
         return Response(
             content=json.dumps({"detail": "BigQuery quota exceeded"}),
@@ -2312,33 +2165,7 @@ def test_schema_error_other_than_404_includes_api_detail() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_warehouse_url_error_includes_status_detail() -> None:
-    url = "https://some-site.pamdas.org/api/v1.0/status"
-    response = httpx.Response(
-        403,
-        json={"detail": "Authentication credentials were not provided."},
-        request=httpx.Request("GET", url),
-    )
-    mock_ctx = AsyncMock()
-    mock_ctx.get.return_value = response
-    er_client = ERWarehouseClient(server="some-site.pamdas.org", token="abc")
-
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_instance = AsyncMock()
-        mock_instance.__aenter__.return_value = mock_ctx
-        mock_instance.__aexit__.return_value = False
-        mock_client_cls.return_value = mock_instance
-
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await er_client._resolve_warehouse_url()
-
-    assert exc_info.value.response.status_code == 403
-    assert "Authentication credentials were not provided." in str(exc_info.value)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("fetch", [_get_table, _search_table])
-async def test_stream_redirect_raises_http_status_error(fetch) -> None:
+async def test_stream_redirect_raises_http_status_error() -> None:
     async def _app(scope, receive, send):
         await send(
             {
@@ -2353,7 +2180,7 @@ async def test_stream_redirect_raises_http_status_error(fetch) -> None:
         transport=ASGITransport(_app), base_url="http://test"
     ) as client:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await fetch(
+            await _search_table(
                 client=client,
                 route="/observations/search/stream/arrow",
                 query=_observations_query(),
@@ -2383,7 +2210,7 @@ async def test_stream_error_body_read_failure_keeps_http_status_error(error) -> 
         transport=httpx.MockTransport(_handler), base_url="http://test"
     ) as client:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await _get_table(
+            await _search_table(
                 client=client,
                 route="/observations/search/stream/arrow",
                 query=_observations_query(),
@@ -2414,7 +2241,7 @@ async def test_stream_error_body_decoding_failure_keeps_http_status_error() -> N
         transport=ASGITransport(_app), base_url="http://test"
     ) as client:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await _get_table(
+            await _search_table(
                 client=client,
                 route="/observations/search/stream/arrow",
                 query=_observations_query(),
@@ -2515,8 +2342,8 @@ async def test_observations_routes_honour_include_subject_promoted_fields(
     app: FastAPI,
     value: bool,
 ) -> None:
-    """GET carries the flag in the query string, POST in the body; both must reach
-    the store and keep the stream schema stable."""
+    """The flag travels in the body and must reach the store while the stream
+    schema stays stable."""
     query = ObservationsQuery(
         tenant_domain="some-site.pamdas.org",
         subject_ids=["subject1", "subject2"],
@@ -2528,19 +2355,13 @@ async def test_observations_routes_honour_include_subject_promoted_fields(
         transport=ASGITransport(app),
         base_url="http://test",
     ) as client:
-        tables = [
-            await _get_table(
-                client=client, route="/observations/stream/arrow", query=query
-            ),
-            await _search_table(
-                client=client, route="/observations/search/stream/arrow", query=query
-            ),
-        ]
+        table = await _search_table(
+            client=client, route="/observations/search/stream/arrow", query=query
+        )
 
-    for table in tables:
-        assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
-        for col in _PROMOTED_SLIM_COLUMNS:
-            assert (table.column(col).null_count == table.num_rows) is not value
+    assert table.schema.equals(OBSERVATIONS_SCHEMA__ECOSCOPE_SLIM_V1)
+    for col in _PROMOTED_SLIM_COLUMNS:
+        assert (table.column(col).null_count == table.num_rows) is not value
 
 
 # Without patrol details these routes return ECOSCOPE_SLIM_V1, so the flag must
