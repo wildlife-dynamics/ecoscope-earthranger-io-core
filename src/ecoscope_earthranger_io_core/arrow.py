@@ -403,6 +403,50 @@ PATROL_TYPES_SCHEMA_V1 = pa.schema(
 )
 
 
+# =========================================================================
+# Subject type Schemas
+# =========================================================================
+
+# Sub-type listing row. ``subject_type`` is the parent type's value, as das
+# returns it; ``subject_type_display`` saves a second listing call to resolve it.
+SUBJECT_SUBTYPE_STRUCT_V1 = pa.struct(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("value", pa.string()),
+        ("display", pa.string()),
+        ("subject_type", pa.string()),
+        ("subject_type_display", pa.string()),
+        ("ordernum", pa.float64()),
+        ("is_active", pa.bool_()),
+        ("has_subjects_assigned", pa.bool_()),
+    ]
+)
+
+# Listing schema for ``/subject_subtypes`` -- the same fields as the struct, one
+# row per sub-type.
+SUBJECT_SUBTYPES_SCHEMA_V1 = pa.schema(list(SUBJECT_SUBTYPE_STRUCT_V1))
+
+# Listing schema for ``/subject_types``. ``ordernum`` is float64, not int64 as
+# in PATROL_TYPES_SCHEMA_V1, because subject type ranks can be fractional.
+SUBJECT_TYPES_SCHEMA_V1 = pa.schema(
+    [  # type: ignore[arg-type]
+        ("id", pa.string()),
+        ("value", pa.string()),
+        ("display", pa.string()),
+        ("ordernum", pa.float64()),
+        ("is_active", pa.bool_()),
+    ]
+)
+
+# ``/subject_types`` with ``include_subtypes``: each type carries its sub-types.
+SUBJECT_TYPES_WITH_SUBTYPES_SCHEMA_V1 = pa.schema(
+    [
+        *SUBJECT_TYPES_SCHEMA_V1,
+        pa.field("subtypes", pa.list_(SUBJECT_SUBTYPE_STRUCT_V1)),
+    ]
+)
+
+
 def _observations_pre_cast(earthranger_rb: pa.RecordBatch) -> pa.RecordBatch:
     """Convert an EarthRanger RecordBatch to an Ecoscope RecordBatch."""
 
