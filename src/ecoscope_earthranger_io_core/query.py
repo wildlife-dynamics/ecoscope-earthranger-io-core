@@ -534,6 +534,85 @@ class SegmentSchemaQuery(_TenantQuery):
         return cls(tenant_domain=tenant_domain)
 
 
+class SubjectTypesQuery(_TenantQuery):
+    """Query for the warehouse /subject_types listing (tenant-scoped).
+
+    Rows stream against ``SUBJECT_TYPES_SCHEMA_V1``, or
+    ``SUBJECT_TYPES_WITH_SUBTYPES_SCHEMA_V1`` when ``include_subtypes`` is set.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import SubjectTypesQuery
+    >>> query = SubjectTypesQuery(tenant_domain="some-site.pamdas.org")
+    >>> query.include_inactive, query.include_subtypes
+    (False, False)
+
+    ```
+
+    Or with inactive types and each type's sub-types:
+
+    ```python
+    >>> query = SubjectTypesQuery(
+    ...     tenant_domain="some-site.pamdas.org",
+    ...     include_inactive=True,
+    ...     include_subtypes=True,
+    ... )
+    >>>
+    ```
+    """
+
+    include_inactive: bool = Field(
+        default=False,
+        description=(
+            "If True, include inactive subject types (and inactive sub-types "
+            "when include_subtypes is set); if False (default), only active ones."
+        ),
+    )
+    include_subtypes: bool = Field(
+        default=False,
+        description=(
+            "If True, add a `subtypes` list column with each type's sub-types; "
+            "if False (default), return the types alone."
+        ),
+    )
+
+
+class SubjectSubtypesQuery(_TenantQuery):
+    """Query for the warehouse /subject_subtypes listing (tenant-scoped).
+
+    Rows stream against ``SUBJECT_SUBTYPES_SCHEMA_V1``.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import SubjectSubtypesQuery
+    >>> query = SubjectSubtypesQuery(
+    ...     tenant_domain="some-site.pamdas.org",
+    ...     subject_type=["wildlife"],
+    ... )
+    >>> query.include_inactive
+    False
+
+    ```
+    """
+
+    include_inactive: bool = Field(
+        default=False,
+        description=(
+            "If True, include inactive sub-types and sub-types of inactive "
+            "types; if False (default), only active sub-types of active types."
+        ),
+    )
+    subject_type: list[str] | None = Field(
+        default=None,
+        description=(
+            "Filter to sub-types of any of these subject type values; "
+            "None (default) = no type filter."
+        ),
+    )
+
+
 class _PatrolsQuery(_WarehouseQuery):
     # ToDo: conciliate this with PatrolsQuery (to remove this class)
     # Kept for backward compatibility with PatrolEventsQuery, until we support events in the warehouse API
