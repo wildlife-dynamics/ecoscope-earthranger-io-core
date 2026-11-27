@@ -613,6 +613,49 @@ class SubjectSubtypesQuery(_TenantQuery):
     )
 
 
+class SubjectSubtypeSchemaQuery(_TenantQuery):
+    """Lookup for a single subject sub-type's schema.
+
+    ``subject_subtype`` accepts either the sub-type's UUID or its ``value``
+    slug, as das does. A sub-type schema stands alone: it is not merged with
+    its subject type's schema.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import SubjectSubtypeSchemaQuery
+    >>> query = SubjectSubtypeSchemaQuery(
+    ...     tenant_domain="some-site.pamdas.org",
+    ...     subject_subtype="elephant",
+    ... )
+    >>>
+    ```
+    """
+
+    subject_subtype: str
+
+
+class SubjectSubtypeSchemasQuery(SubjectSubtypesQuery):
+    """Query for the schema of every listed sub-type (tenant-scoped).
+
+    Same filters and order as ``SubjectSubtypesQuery``; each row also carries
+    its sub-type's schema.
+
+    Examples:
+
+    ```python
+    >>> from ecoscope_earthranger_io_core.query import SubjectSubtypeSchemasQuery
+    >>> query = SubjectSubtypeSchemasQuery(
+    ...     tenant_domain="some-site.pamdas.org",
+    ...     subject_type=["wildlife"],
+    ... )
+    >>> query.include_inactive
+    False
+
+    ```
+    """
+
+
 class _PatrolsQuery(_WarehouseQuery):
     # ToDo: conciliate this with PatrolsQuery (to remove this class)
     # Kept for backward compatibility with PatrolEventsQuery, until we support events in the warehouse API

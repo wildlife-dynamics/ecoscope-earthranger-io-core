@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
 
-from ecoscope_earthranger_io_core.query import SubjectSubtypesQuery, SubjectTypesQuery
+from ecoscope_earthranger_io_core.query import (
+    SubjectSubtypeSchemaQuery,
+    SubjectSubtypeSchemasQuery,
+    SubjectSubtypesQuery,
+    SubjectTypesQuery,
+)
 
 DOMAIN = "example.pamdas.org"
 
@@ -55,4 +60,43 @@ def test_subject_type_queries_take_no_tenant_in_the_body(model, fields):
 @pytest.mark.parametrize("model", [SubjectTypesQuery, SubjectSubtypesQuery])
 def test_subject_type_queries_are_post_only(model):
     """The listings have no GET route, so there is no query-string binding."""
+    assert not hasattr(model, "from_query_params")
+
+
+def test_subject_subtype_schema_query_takes_one_key():
+    q = SubjectSubtypeSchemaQuery(tenant_domain=DOMAIN, subject_subtype="elephant")
+    assert q.subject_subtype == "elephant"
+    assert "tenant_id" not in q.model_dump()
+
+
+def test_subject_subtype_schema_query_requires_the_key():
+    with pytest.raises(ValidationError):
+        SubjectSubtypeSchemaQuery(tenant_domain=DOMAIN)
+
+
+def test_subject_subtype_schemas_query_has_the_listing_filters():
+    q = SubjectSubtypeSchemasQuery(tenant_domain=DOMAIN)
+    assert q.include_inactive is False
+    assert q.subject_type is None
+    q = SubjectSubtypeSchemasQuery(include_inactive=True, subject_type=["wildlife"])
+    assert (q.include_inactive, q.subject_type) == (True, ["wildlife"])
+    with pytest.raises(ValidationError):
+        SubjectSubtypeSchemasQuery(subject_type="wildlife")
+
+
+@pytest.mark.parametrize(
+    "model, fields",
+    [
+        (SubjectSubtypeSchemaQuery, {"subject_subtype": "elephant"}),
+        (SubjectSubtypeSchemasQuery, {"subject_type": ["wildlife"]}),
+    ],
+)
+def test_subject_subtype_schema_queries_take_no_tenant_in_the_body(model, fields):
+    assert "tenant_domain" not in model(**fields).model_dump(exclude_none=True)
+
+
+@pytest.mark.parametrize(
+    "model", [SubjectSubtypeSchemaQuery, SubjectSubtypeSchemasQuery]
+)
+def test_subject_subtype_schema_queries_are_post_only(model):
     assert not hasattr(model, "from_query_params")
